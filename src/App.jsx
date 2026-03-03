@@ -123,8 +123,9 @@ async function fetchCalendar(token) {
 }
 
 async function fetchSlack(tk) {
+  if (!tk) return { connected: false, messages: [] };
   try {
-    const url = tk ? "/api/slack-messages?token=" + encodeURIComponent(tk) : "/api/slack-messages";
+    const url = "/api/slack-messages?token=" + encodeURIComponent(tk);
     const res = await fetch(url);
     const data = await res.json();
     if (data.connected)
@@ -297,13 +298,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    fetchSlack(slackToken)
-      .then((r) => {
-        setSlackConnected(r.connected);
-        setSlackMsgs(r.messages);
-      })
-      .catch(console.error);
-  }, []);
+    if (slackToken) {
+      fetchSlack(slackToken)
+        .then((r) => {
+          setSlackConnected(r.connected);
+          setSlackMsgs(r.messages);
+        })
+        .catch(console.error);
+    }
+  }, [slackToken]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
