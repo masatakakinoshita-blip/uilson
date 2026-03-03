@@ -322,21 +322,12 @@ export default function App() {
     }
     // Fetch Slack user email
     if (slackToken) {
-      fetch("https://slack.com/api/auth.test", {
-        headers: { Authorization: "Bearer " + slackToken },
-      })
+      fetch("/api/slack-userinfo?token=" + encodeURIComponent(slackToken))
         .then((r) => r.json())
         .then((d) => {
-          if (d.ok && d.user_id) {
-            return fetch("https://slack.com/api/users.info?user=" + d.user_id, {
-              headers: { Authorization: "Bearer " + slackToken },
-            }).then((r) => r.json());
-          }
-        })
-        .then((d) => {
-          if (d?.ok && d.user?.profile?.email) {
-            setSlackEmail(d.user.profile.email);
-            localStorage.setItem("slack_email", d.user.profile.email);
+          if (d.ok && d.email) {
+            setSlackEmail(d.email);
+            localStorage.setItem("slack_email", d.email);
           }
         })
         .catch(console.error);
