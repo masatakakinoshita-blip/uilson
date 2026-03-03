@@ -65,6 +65,11 @@ async function fetchGmail(token) {
 
 async function fetchCalendar(token) {
   const headers = { Authorization: "Bearer " + token };
+  const now = new Date();
+  const oneMonthAgo = new Date(now);
+  oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+  const oneMonthLater = new Date(now);
+  oneMonthLater.setMonth(oneMonthLater.getMonth() + 1);
   const now = new Date().toISOString();
 
   // 1. Get all calendars the user has access to (including shared / sub-account)
@@ -91,7 +96,9 @@ async function fetchCalendar(token) {
           "https://www.googleapis.com/calendar/v3/calendars/" +
             encodeURIComponent(calId) +
             "/events?maxResults=250&timeMin=" +
-          new Date().toISOString() +
+          oneMonthAgo.toISOString() +
+          "&timeMax=" +
+          oneMonthLater.toISOString() +
           "&orderBy=startTime&singleEvents=true",
           { headers }
         );
@@ -153,17 +160,20 @@ function extractReply(data) {
 }
 
 function buildContext(emails, events, slackMsgs) {
+  const dayNames = ["日", "月", "火", "水", "木", "金", "土"];
   let ctx = "";
   if (emails.length) {
     ctx += "\n## Gmail (latest " + emails.length + ")\n";
     emails.forEach((e) => {
+      const d = e.date ? new Date(e.date) : null;
+      const dow = d && !isNaN(d) ? "(" + dayNames[d.getDay()] + ")" : "";
       ctx +=
         "- [ID:" + e.id + "] From:" +
         e.from +
         " Sub:" +
         e.subject +
         " Date:" +
-        e.date +
+        e.date + dow +
         " Snippet:" +
         e.snippet +
         "\n";
@@ -172,13 +182,17 @@ function buildContext(emails, events, slackMsgs) {
   if (events.length) {
     ctx += "\n## Calendar (upcoming " + events.length + ")\n";
     events.forEach((e) => {
+      const ds = e.start ? new Date(e.start) : null;
+      const de = e.end ? new Date(e.end) : null;
+      const dowStart = ds ? "(" + dayNames[ds.getDay()] + ")" : "";
+      const dowEnd = de ? "(" + dayNames[de.getDay()] + ")" : "";
       ctx +=
         "- [ID:" + e.id + "] " +
         e.summary +
         " " +
-        e.start +
+        e.start + dowStart +
         " ~ " +
-        e.end +
+        e.end + dowEnd +
         (e.location ? " @" + e.location : "") +
         (e.calendar ? " [" + e.calendar + "]" : "") +
         "\n";
@@ -202,7 +216,7 @@ function buildContext(emails, events, slackMsgs) {
   return ctx;
 }
 
-/* ─── V16 Design System ─── */
+/* âââ V16 Design System âââ */
 const V = {
   bg: "#F0F2F7",
   sb: "#FFFFFF",
@@ -372,12 +386,13 @@ export default function App() {
     setLoading(true);
     try {
       const ctx = await getContext();
+      const dowNames = ["日", "月", "火", "水", "木", "金", "土"];
       const systemPrompt =
         "You are UILSON, a professional AI business assistant. Current: " +
-        new Date().toLocaleString("ja-JP") +
+        new Date().toLocaleString("ja-JP") + " (" + dowNames[now.getDay()] + "曜日)" +
         "\nUser data:" +
         ctx +
-        "\nReply in user language. For greetings, give a brief daily briefing using Gmail, Calendar, and Slack data.";
+        "\nReply in user language. For greetings, give a brief daily briefing using Gmail, Calendar, and Slack data.\nIMPORTANT: Calendar events already include correct day-of-week labels like (月)(火). Always use these labels as-is. Never guess or recalculate day-of-week yourself.";
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -403,20 +418,20 @@ export default function App() {
 
   const quickActions = [
     {
-      label: "☀️ 今日のブリーフィング",
-      text: "おはよう！今日のブリーフィングをください。",
+      label: "âï¸ ä»æ¥ã®ããªã¼ãã£ã³ã°",
+      text: "ãã¯ããï¼ä»æ¥ã®ããªã¼ãã£ã³ã°ããã ããã",
     },
     {
-      label: "✉️ 未読メール",
-      text: "未読メールを要約してください。",
+      label: "âï¸ æªèª­ã¡ã¼ã«",
+      text: "æªèª­ã¡ã¼ã«ãè¦ç´ãã¦ãã ããã",
     },
     {
-      label: "📅 今日の予定",
-      text: "今日のカレンダーの予定は？",
+      label: "ð ä»æ¥ã®äºå®",
+      text: "ä»æ¥ã®ã«ã¬ã³ãã¼ã®äºå®ã¯ï¼",
     },
     {
-      label: "💬 Slackメッセージ",
-      text: "最近のSlackメッセージを見せて。",
+      label: "ð¬ Slackã¡ãã»ã¼ã¸",
+      text: "æè¿ã®Slackã¡ãã»ã¼ã¸ãè¦ãã¦ã",
     },
   ];
 
@@ -429,7 +444,7 @@ export default function App() {
     setGoogleEmail("");
   };
 
-  /* ─── Sidebar Nav Items ─── */
+  /* âââ Sidebar Nav Items âââ */
   const slackLogout = () => {
     localStorage.removeItem("slack_token");
     localStorage.removeItem("slack_email");
@@ -440,15 +455,15 @@ export default function App() {
   };
 
   const navItems = [
-    { id: "chat", icon: "💬", label: "指示する" },
-    { id: "settings", icon: "⚙️", label: "設定" },
+    { id: "chat", icon: "ð¬", label: "æç¤ºãã" },
+    { id: "settings", icon: "âï¸", label: "è¨­å®" },
   ];
 
   return (
     <>
       <style>{globalCSS}</style>
       <div style={{ display: "flex", height: "100vh", background: V.bg, color: V.t1 }}>
-        {/* ─── Sidebar ─── */}
+        {/* âââ Sidebar âââ */}
         <div
           className="uilson-sb"
           style={{
@@ -516,7 +531,7 @@ export default function App() {
                   UILSON
                 </div>
                 <div style={{ fontSize: 11, color: V.t4, marginTop: 1 }}>
-                  AI業務アシスタント
+                  AIæ¥­åã¢ã·ã¹ã¿ã³ã
                 </div>
               </div>
             )}
@@ -539,7 +554,7 @@ export default function App() {
                   flexShrink: 0,
                 }}
               >
-                ◀
+                â
               </div>
             )}
             {sbCollapsed && (
@@ -563,7 +578,7 @@ export default function App() {
                   zIndex: 10,
                 }}
               >
-                ▶
+                â¶
               </div>
             )}
           </div>
@@ -630,7 +645,7 @@ export default function App() {
                     letterSpacing: 0.5,
                   }}
                 >
-                  {"接続中のシステム"}
+                  {"æ¥ç¶ä¸­ã®ã·ã¹ãã "}
                 </div>
                 {[
                   { name: "Google", on: !!token },
@@ -702,7 +717,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* ─── Main ─── */}
+        {/* âââ Main âââ */}
         <div
           className="uilson-mn"
           style={{
@@ -714,7 +729,7 @@ export default function App() {
           }}
         >
           {view === "settings" ? (
-            /* ─── Settings View ─── */
+            /* âââ Settings View âââ */
             <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
               <div
                 style={{
@@ -728,10 +743,10 @@ export default function App() {
               >
                 <div>
                   <div style={{ fontSize: 20, fontWeight: 700, color: V.t1 }}>
-                    {"⚙️ 設定"}
+                    {"âï¸ è¨­å®"}
                   </div>
                   <div style={{ fontSize: 14, color: V.t3, marginTop: 2 }}>
-                    {"外部サービスの接続管理"}
+                    {"å¤é¨ãµã¼ãã¹ã®æ¥ç¶ç®¡ç"}
                   </div>
                 </div>
               </div>
@@ -764,9 +779,9 @@ export default function App() {
                     }}
                   >
                     <span>
-                      {"🌐"}
+                      {"ð"}
                     </span>{" "}
-                    Googleアカウント
+                    Googleã¢ã«ã¦ã³ã
                   </div>
                   <div style={{ padding: 16 }}>
                     {token ? (
@@ -789,7 +804,7 @@ export default function App() {
                             }}
                           />
                           <span style={{ color: V.green, fontWeight: 600, fontSize: 14 }}>
-                            {"接続済み"}
+                            {"æ¥ç¶æ¸ã¿"}
                           </span>
                           {googleEmail && (
                             <span style={{ fontSize: 13, color: V.t3, marginLeft: 8 }}>
@@ -798,7 +813,7 @@ export default function App() {
                           )}
                         </div>
                         <div style={{ fontSize: 13, color: V.t3, marginBottom: 12 }}>
-                          Gmail: {emails.length}件 / Calendar: {events.length}件
+                          Gmail: {emails.length}ä»¶ / Calendar: {events.length}ä»¶
                         </div>
                         <button
                           onClick={logout}
@@ -813,13 +828,13 @@ export default function App() {
                             fontFamily: "inherit",
                           }}
                         >
-                          {"切断"}
+                          {"åæ­"}
                         </button>
                       </>
                     ) : (
                       <>
                         <div style={{ fontSize: 14, color: V.t3, marginBottom: 12 }}>
-                          {"未接続 — Gmailとカレンダーを連携します"}
+                          {"æªæ¥ç¶ â Gmailã¨ã«ã¬ã³ãã¼ãé£æºãã¾ã"}
                         </div>
                         <a
                           href={googleAuthUrl()}
@@ -837,7 +852,7 @@ export default function App() {
                             textDecoration: "none",
                           }}
                         >
-                          Googleを接続
+                          Googleãæ¥ç¶
                         </a>
                       </>
                     )}
@@ -867,7 +882,7 @@ export default function App() {
                     }}
                   >
                     <span>
-                      {"💬"}
+                      {"ð¬"}
                     </span>{" "}
                     Slack
                   </div>
@@ -892,7 +907,7 @@ export default function App() {
                             }}
                           />
                           <span style={{ color: V.green, fontWeight: 600, fontSize: 14 }}>
-                            {"接続済み"}
+                            {"æ¥ç¶æ¸ã¿"}
                           </span>
                           {slackEmail && (
                             <span style={{ fontSize: 13, color: V.t3, marginLeft: 8 }}>
@@ -901,7 +916,7 @@ export default function App() {
                           )}
                         </div>
                         <div style={{ fontSize: 13, color: V.t3 }}>
-                          {slackMsgs.length}件のメッセージを取得
+                          {slackMsgs.length}ä»¶ã®ã¡ãã»ã¼ã¸ãåå¾
                         </div>
                       
                         <button
@@ -917,13 +932,13 @@ export default function App() {
                             marginTop: 8,
                           }}
                         >
-                          {"切断"}
+                          {"åæ­"}
                         </button>
                       </>
                     ) : (
                       <>
                       <div style={{ fontSize: 14, color: V.t3, marginBottom: 8 }}>
-                        {"未接続"}
+                        {"æªæ¥ç¶"}
                       </div>
                       <a
                         href={slackAuthUrl()}
@@ -939,7 +954,7 @@ export default function App() {
                           cursor: "pointer",
                         }}
                       >
-                        {"Slackを接続"}
+                        {"Slackãæ¥ç¶"}
                       </a>
                       </>
                     )}
@@ -948,7 +963,7 @@ export default function App() {
               </div>
             </div>
           ) : (
-            /* ─── Chat View ─── */
+            /* âââ Chat View âââ */
             <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
               {/* Top Bar */}
               <div
@@ -964,10 +979,10 @@ export default function App() {
               >
                 <div>
                   <div style={{ fontSize: 20, fontWeight: 700, color: V.t1 }}>
-                    {"💬 指示する"}
+                    {"ð¬ æç¤ºãã"}
                   </div>
                   <div style={{ fontSize: 14, color: V.t3, marginTop: 2 }}>
-                    {"AIがメール・カレンダー・Slackを横断して判断します"}
+                    {"AIãã¡ã¼ã«ã»ã«ã¬ã³ãã¼ã»Slackãæ¨ªæ­ãã¦å¤æ­ãã¾ã"}
                   </div>
                 </div>
                 <div
@@ -1076,7 +1091,7 @@ export default function App() {
                         UILSON
                       </div>
                       <div style={{ fontSize: 14, color: V.t3 }}>
-                        {"AI業務アシスタント — 何でも聴いてください"}
+                        {"AIæ¥­åã¢ã·ã¹ã¿ã³ã â ä½ã§ãè´ãã¦ãã ãã"}
                       </div>
                     </div>
                     <div
@@ -1219,7 +1234,7 @@ export default function App() {
                       }}
                     >
                       <span style={{ animation: "pulse 1.2s ease-in-out infinite" }}>
-                        {"🔍 情報を収集・分析中..."}
+                        {"ð æå ±ãåéã»åæä¸­..."}
                       </span>
                     </div>
                   </div>
@@ -1258,7 +1273,7 @@ export default function App() {
                       e.keyCode !== 229 &&
                       send(input)
                     }
-                    placeholder={"例：「今日の予定教えて」「未読メールを要約して」"}
+                    placeholder={"ä¾ï¼ãä»æ¥ã®äºå®æãã¦ããæªèª­ã¡ã¼ã«ãè¦ç´ãã¦ã"}
                     style={{
                       flex: 1,
                       border: "none",
@@ -1285,7 +1300,7 @@ export default function App() {
                       opacity: loading ? 0.6 : 1,
                     }}
                   >
-                    {"送信 →"}
+                    {"éä¿¡ â"}
                   </button>
                 </div>
               </div>
