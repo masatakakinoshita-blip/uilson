@@ -6,14 +6,14 @@ const SCOPES =
   "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly";
 
 const SLACK_CLIENT_ID = import.meta.env.VITE_SLACK_CLIENT_ID;
-const SLACK_SCOPES = "channels:read,channels:history,groups:read,groups:history,chat:write,users:read";
+const SLACK_USER_SCOPES = "channels:read,channels:history,groups:read,groups:history,chat:write,users:read";
 
 function slackAuthUrl() {
   return (
     "https://slack.com/oauth/v2/authorize?" +
     new URLSearchParams({
       client_id: SLACK_CLIENT_ID,
-      scope: SLACK_SCOPES,
+      user_scope: SLACK_USER_SCOPES,
       redirect_uri: window.location.origin,
     })
   );

@@ -21,11 +21,13 @@ export default async function handler(req, res) {
 
       if (!resp.ok) return res.status(400).json({ error: resp.error });
 
+      // user_scope flow: user token is in authed_user.access_token
+      const userToken = resp.authed_user?.access_token || resp.access_token;
       return res.status(200).json({
               ok: true,
-              access_token: resp.access_token,
+              access_token: userToken,
               team: resp.team,
-              scope: resp.scope,
+              scope: resp.authed_user?.scope || resp.scope,
       });
   } catch (e) {
         return res.status(500).json({ error: e.message });
