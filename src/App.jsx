@@ -34,14 +34,14 @@ function googleAuthUrl() {
 
 async function fetchGmail(token) {
   const res = await fetch(
-    "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10",
+    (() => { const d = new Date(); d.setMonth(d.getMonth() - 2); return "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=100&q=after:" + d.getFullYear() + "/" + (d.getMonth()+1) + "/" + d.getDate(); })(),
     { headers: { Authorization: "Bearer " + token } }
   );
   if (res.status === 401) throw new Error("AUTH_EXPIRED");
     const data = await res.json();
   if (!data.messages) return [];
   const details = await Promise.all(
-    data.messages.slice(0, 10).map((m) =>
+    data.messages.slice(0, 50).map((m) =>
       fetch(
         "https://gmail.googleapis.com/gmail/v1/users/me/messages/" +
           m.id +
@@ -90,9 +90,9 @@ async function fetchCalendar(token) {
         const res = await fetch(
           "https://www.googleapis.com/calendar/v3/calendars/" +
             encodeURIComponent(calId) +
-            "/events?maxResults=10&timeMin=" +
-            now +
-            "&orderBy=startTime&singleEvents=true",
+            "/events?maxResults=250&timeMin=" +
+          new Date(Date.now() - 365*24*60*60*1000).toISOString() +
+          "&orderBy=startTime&singleEvents=true",
           { headers }
         );
         const data = await res.json();
@@ -121,7 +121,7 @@ async function fetchCalendar(token) {
       return true;
     })
     .sort((a, b) => (a.start || "").localeCompare(b.start || ""))
-    .slice(0, 20);
+    .slice(0, 200);
 }
 
 async function fetchSlack(tk) {
