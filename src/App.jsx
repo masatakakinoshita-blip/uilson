@@ -240,7 +240,7 @@ function extractReply(data) {
 }
 
 function buildContext(emails, events, slackMsgs, outlookEmails, outlookEvents, spSites, spFiles, teamsChats, teamsChannels, driveFiles) {
-  const dayNames = ["æ¥", "æ", "ç«", "æ°´", "æ¨", "é", "å"];
+  const dayNames = ["日", "月", "火", "水", "木", "金", "土"];
   let ctx = "";
   if (emails.length) {
     ctx += "\n## Gmail (latest " + emails.length + ")\n";
@@ -632,18 +632,18 @@ const [driveFiles, setDriveFiles] = useState([]);
     setLoading(true);
     try {
       const ctx = await getContext();
-      const dowNames = ["æ¥", "æ", "ç«", "æ°´", "æ¨", "é", "å"];
+      const dowNames = ["日", "月", "火", "水", "木", "金", "土"];
       const currentDate = new Date();
       const systemPrompt =
         "You are UILSON, a professional AI business assistant. Current: " +
         currentDate.toLocaleString("ja-JP") +
         " (" +
         dowNames[currentDate.getDay()] +
-        "ææ¥)" +
+        "曜日)" +
         "\nUser data:" +
         ctx +
         "\nReply in user language. For greetings, give a brief daily briefing using Gmail, Calendar, Slack, and Outlook data." +
-        "\nIMPORTANT: Calendar events already include correct day-of-week labels like (æ)(ç«). Always use these labels as-is. Never guess or recalculate day-of-week yourself." +
+        "\nIMPORTANT: Calendar events already include correct day-of-week labels like (月)(火). Always use these labels as-is. Never guess or recalculate day-of-week yourself." +
         "\nFor Outlook calendar operations, use outlook_calendar_create/update/delete tools." +
         "\nIMPORTANT: When user asks about specific emails or calendar events not shown in the context above, ALWAYS use search tools (outlook_search_mail, outlook_list_events, gmail_search) to dynamically fetch data from the server. NEVER say data is unavailable without trying the search tools first." + "\nFor Slack operations: use slack_search_users to find people by name/email, slack_read_dm to read DM history, slack_send_dm to send messages. ALWAYS use slack_search_users when asked to find or search for someone on Slack." + "\nFor Google Drive: use google_drive_search/google_drive_list/google_drive_get_content tools.";
       const res = await fetch("/api/chat", {
@@ -673,20 +673,20 @@ const [driveFiles, setDriveFiles] = useState([]);
 
   const quickActions = [
     {
-      label: "âï¸ ä»æ¥ã®ããªã¼ãã£ã³ã°",
-      text: "ãã¯ããï¼ä»æ¥ã®ããªã¼ãã£ã³ã°ããã ããã",
+      label: "☕️ 今日のブリーフィング",
+      text: "おはよう！今日のブリーフィングをください。",
     },
     {
-      label: "âï¸ æªèª­ã¡ã¼ã«",
-      text: "æªèª­ã¡ã¼ã«ãè¦ç´ãã¦ãã ããã",
+      label: "✉️ 未読メール",
+      text: "未読メールを要約してください。",
     },
     {
-      label: "ð ä»æ¥ã®äºå®",
-      text: "ä»æ¥ã®ã«ã¬ã³ãã¼ã®äºå®ã¯ï¼",
+      label: "📅 今日の予定",
+      text: "今日のカレンダーの予定は？",
     },
     {
-      label: "ð¬ Slackã¡ãã»ã¼ã¸",
-      text: "æè¿ã®Slackã¡ãã»ã¼ã¸ãè¦ãã¦ã",
+      label: "💬 Slackメッセージ",
+      text: "最近のSlackメッセージを見せて。",
     },
   ];
 
@@ -718,8 +718,8 @@ const [driveFiles, setDriveFiles] = useState([]);
   };
 
   const navItems = [
-    { id: "chat", icon: "ð¬", label: "æç¤ºåºã" },
-    { id: "settings", icon: "âï¸", label: "è¨­å®" },
+    { id: "chat", icon: "💬", label: "指示出し" },
+    { id: "settings", icon: "⚙️", label: "設定" },
   ];
 
   return (
@@ -801,7 +801,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                   UILSON
                 </div>
                 <div style={{ fontSize: 11, color: V.t4, marginTop: 1 }}>
-                  AIæ¥­åã¢ã·ã¹ã¿ã³ã
+                  AI業務アシスタント
                 </div>
               </div>
             )}
@@ -824,7 +824,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                   flexShrink: 0,
                 }}
               >
-                â
+                ◀
               </div>
             )}
             {sbCollapsed && (
@@ -848,7 +848,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                   zIndex: 10,
                 }}
               >
-                â¶
+                ▶
               </div>
             )}
           </div>
@@ -921,7 +921,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                     letterSpacing: 0.5,
                   }}
                 >
-                  {"æ¥ç¶ä¸­ã®ã·ã¹ãã "}
+                  {"接続中のシステム"}
                 </div>
                 {[
                   { name: "Google", on: !!token },
@@ -1027,10 +1027,10 @@ const [driveFiles, setDriveFiles] = useState([]);
               >
                 <div>
                   <div style={{ fontSize: 20, fontWeight: 700, color: V.t1 }}>
-                    {"âï¸ è¨­å®"}
+                    {"⚙️ 設定"}
                   </div>
                   <div style={{ fontSize: 14, color: V.t3, marginTop: 2 }}>
-                    {"å¤é¨ãµã¼ãã¹ã®æ¥ç¶ç®¡ç"}
+                    {"外部サービスの接続管理"}
                   </div>
                 </div>
               </div>
@@ -1063,7 +1063,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                       fontWeight: 600,
                     }}
                   >
-                    <span>{"ð"}</span> Googleã¢ã«ã¦ã³ã
+                    <span>{"🔍"}</span> Googleアカウント
                   </div>
                   <div style={{ padding: 16 }}>
                     {token ? (
@@ -1092,7 +1092,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                               fontSize: 14,
                             }}
                           >
-                            {"æ¥ç¶æ¸ã¿"}
+                            {"接続済み"}
                           </span>
                           {googleEmail && (
                             <span
@@ -1113,8 +1113,8 @@ const [driveFiles, setDriveFiles] = useState([]);
                             marginBottom: 12,
                           }}
                         >
-                          Gmail: {emails.length}ä»¶ / Calendar:{" "}
-                          {events.length}ä»¶
+                          Gmail: {emails.length}件 / Calendar:{" "}
+                          {events.length}件
                         </div>
                         <button
                           onClick={logout}
@@ -1129,7 +1129,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                             fontFamily: "inherit",
                           }}
                         >
-                          {"åæ­"}
+                          {"切断"}
                         </button>
                       </>
                     ) : (
@@ -1141,7 +1141,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                             marginBottom: 12,
                           }}
                         >
-                          {"æªæ¥ç¶ â Gmailã¨ã«ã¬ã³ãã¼ãé£æºãã¾ã"}
+                          {"未接続 — Gmailとカレンダーを連携します"}
                         </div>
                         <a
                           href={googleAuthUrl()}
@@ -1159,7 +1159,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                             textDecoration: "none",
                           }}
                         >
-                          Googleãæ¥ç¶
+                          Googleを接続
                         </a>
                       </>
                     )}
@@ -1188,7 +1188,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                       fontWeight: 600,
                     }}
                   >
-                    <span>{"ð¬"}</span> Slack
+                    <span>{"💬"}</span> Slack
                   </div>
                   <div style={{ padding: 16 }}>
                     {slackConnected ? (
@@ -1217,7 +1217,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                               fontSize: 14,
                             }}
                           >
-                            {"æ¥ç¶æ¸ã¿"}
+                            {"接続済み"}
                           </span>
                           {slackEmail && (
                             <span
@@ -1233,7 +1233,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                         </div>
                         <div style={{ fontSize: 13, color: V.t3 }}>
                           {slackMsgs.length}
-                          ä»¶ã®ã¡ãã»ã¼ã¸ãåå¾
+                          件のメッセージを取得
                         </div>
                         <button
                           onClick={slackLogout}
@@ -1248,7 +1248,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                             marginTop: 8,
                           }}
                         >
-                          {"åæ­"}
+                          {"切断"}
                         </button>
                       </>
                     ) : (
@@ -1260,7 +1260,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                             marginBottom: 8,
                           }}
                         >
-                          {"æªæ¥ç¶"}
+                          {"未接続"}
                         </div>
                         <a
                           href={slackAuthUrl()}
@@ -1276,7 +1276,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                             cursor: "pointer",
                           }}
                         >
-                          {"Slackãæ¥ç¶"}
+                          {"Slackを接続"}
                         </a>
                       </>
                     )}
@@ -1305,7 +1305,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                       fontWeight: 600,
                     }}
                   >
-                    <span>{"ð§"}</span> Outlook (Microsoft 365)
+                    <span>{"📧"}</span> Outlook (Microsoft 365)
                   </div>
                   <div style={{ padding: 16 }}>
                     {msToken ? (
@@ -1334,7 +1334,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                               fontSize: 14,
                             }}
                           >
-                            {"æ¥ç¶æ¸ã¿"}
+                            {"接続済み"}
                           </span>
                           {msEmail && (
                             <span
@@ -1355,8 +1355,8 @@ const [driveFiles, setDriveFiles] = useState([]);
                             marginBottom: 12,
                           }}
                         >
-                          Mail: {outlookEmails.length}ä»¶ / Calendar:{" "}
-                          {outlookEvents.length}ä»¶
+                          Mail: {outlookEmails.length}件 / Calendar:{" "}
+                          {outlookEvents.length}件
                         </div>
                         <button
                           onClick={msLogout}
@@ -1371,7 +1371,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                             fontFamily: "inherit",
                           }}
                         >
-                          {"åæ­"}
+                          {"切断"}
                         </button>
                       </>
                     ) : (
@@ -1383,7 +1383,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                             marginBottom: 12,
                           }}
                         >
-                          {"æªæ¥ç¶ â Outlookã¡ã¼ã«ã¨ã«ã¬ã³ãã¼ãé£æºãã¾ã"}
+                          {"未接続 — Outlookメールとカレンダーを連携します"}
                         </div>
                         <a
                           href={msAuthUrl()}
@@ -1402,7 +1402,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                             textDecoration: "none",
                           }}
                         >
-                          Outlookãæ¥ç¶
+                          Outlookを接続
                         </a>
                       </>
                     )}
@@ -1433,10 +1433,10 @@ const [driveFiles, setDriveFiles] = useState([]);
               >
                 <div>
                   <div style={{ fontSize: 20, fontWeight: 700, color: V.t1 }}>
-                    {"ð¬ æç¤ºåºã"}
+                    {"💬 指示出し"}
                   </div>
                   <div style={{ fontSize: 14, color: V.t3, marginTop: 2 }}>
-                    {"AIãã¡ã¼ã«ã»ã«ã¬ã³ãã¼ã»Slackã»Outlookãæ¨ªæ­ãã¦å¤æ­ãã¾ã"}
+                    {"AIがメール・カレンダー・Slack・Outlookを横断して判断します"}
                   </div>
                 </div>
                 <div
@@ -1546,7 +1546,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                         UILSON
                       </div>
                       <div style={{ fontSize: 14, color: V.t3 }}>
-                        {"AIæ¥­åã¢ã·ã¹ã¿ã³ã â ä½ã§ãè´ãã¦ãã ãã"}
+                        {"AI業務アシスタント — 何でも聴いてください"}
                       </div>
                     </div>
                     <div
@@ -1701,7 +1701,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                           animation: "pulse 1.2s ease-in-out infinite",
                         }}
                       >
-                        {"ð æå ±ãåéã»åæä¸­..."}
+                        {"🔍 情報を収集・分析中..."}
                       </span>
                     </div>
                   </div>
@@ -1740,7 +1740,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                       send(input)
                     }
                     placeholder={
-                      "ä¾ï¼ãä»æ¥ã®äºå®æãã¦ããæªèª­ã¡ã¼ã«ãè¦ç´ãã¦ã"
+                      "例：「今日の予定教えて」「未読メールを要約して」"
                     }
                     style={{
                       flex: 1,
@@ -1768,7 +1768,7 @@ const [driveFiles, setDriveFiles] = useState([]);
                       opacity: loading ? 0.6 : 1,
                     }}
                   >
-                    {"éä¿¡ â"}
+                    {"送信 →"}
                   </button>
                 </div>
               </div>
@@ -1779,7 +1779,3 @@ const [driveFiles, setDriveFiles] = useState([]);
     </>
   );
 }
-
-Claude is active in this tab group
-Open chat
-Dismiss
