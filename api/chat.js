@@ -1,3 +1,27 @@
+// Gemini model fallback chain: try models in order, skip to next on 404/deprecated
+const GEMINI_MODELS = [
+  'gemini-3.1-pro-preview',
+  'gemini-3-flash-preview',
+  'gemini-2.5-flash',
+  'gemini-2.5-pro',
+];
+
+async function callGemini(apiKey, reqBody) {
+  for (const model of GEMINI_MODELS) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(reqBody),
+    });
+    if (resp.status === 404 || resp.status === 403) continue; // model deprecated or unavailable
+    const data = await resp.json();
+    if (data.error && (data.error.code === 404 || data.error.status === 'NOT_FOUND')) continue;
+    return { data, model };
+  }
+  return { data: { error: { message: 'All Gemini models unavailable' } }, model: null };
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -559,10 +583,7 @@ export default async function handler(req, res) {
       const reqBody = { contents: currentContents, generationConfig: { maxOutputTokens: 8192 } };
       if (system) reqBody.systemInstruction = { parts: [{ text: system }] };
       if (googleToken || msToken) reqBody.tools = geminiTools;
-      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + geminiKey, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reqBody),
-      });
-      const data = await response.json();
+      const { data } = await callGemini(geminiKey, reqBody);
       if (!data.candidates || !data.candidates[0]) {
         return res.status(200).json({ content: [{ type: 'text', text: data.error ? data.error.message : JSON.stringify(data) }] });
       }
@@ -588,3 +609,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: e.message });
   }
 }
+
+Claude is active in this tab group
+Open chat
+Dismiss
