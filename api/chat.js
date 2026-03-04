@@ -215,7 +215,7 @@ nput_schema: { type: 'object', properties: { to: { type: 'string', description: 
       // ===== SLACK DM TOOLS =====
       {
         name: 'slack_search_users',
-        description: 'Search Slack workspace users by name. Returns matching users with their IDs. Use this first to find a DM target by name.',
+        description: 'Search Slack workspace users by name, display_name, email, etc. Returns matching users with their IDs. Use this first to find a DM target. IMPORTANT: If searching with Japanese kanji/hiragana returns no results, retry with romaji (e.g. if '木下' fails, try 'kinoshita'). Also try partial matches and English names.',
         input_schema: { type: 'object', properties: { query: { type: 'string', description: 'Name or partial name to search (e.g. "田中", "Tanaka", "john")' } }, required: ['query'] }
       },
       {
@@ -612,33 +612,41 @@ nput_schema: { type: 'object', properties: { to: { type: 'string', description: 
 
           // ----- Slack DM -----
           case 'slack_search_users': {
-            if (!slackToken) return { error: 'Slack not connected. Please connect Slack first in Settings.' };
-            const sh = { Authorization: 'Bearer ' + slackToken };
-            const r = await fetch('https://slack.com/api/users.list?limit=200', { headers: sh });
-            const d = await r.json();
-            if (!d.ok) return { error: 'Slack API error: ' + (d.error || 'unknown') };
-            const q = (input.query || '').toLowerCase();
-            const matches = (d.members || [])
-              .filter(u => !u.deleted && !u.is_bot && u.id !== 'USLACKBOT')
-              .filter(u => {
-                const rn = (u.real_name || '').toLowerCase();
-                const dn = (u.profile?.display_name || '').toLowerCase();
-                const nm = (u.name || '').toLowerCase();
-                return rn.includes(q) || dn.includes(q) || nm.includes(q);
-              })
-              .slice(0, 10)
-              .map(u => ({
-                id: u.id,
-                real_name: u.real_name || u.name,
-                display_name: u.profile?.display_name || '',
-                email: u.profile?.email || '',
-                title: u.profile?.title || '',
-                status: u.profile?.status_text || ''
-              }));
-            return { results: matches, count: matches.length, message: matches.length === 0 ? 'No users found matching: ' + input.query : null };
-          }
-
-          case 'slack_read_dm': {
+       if (!slackToken) return { error: 'Slack not connected. Please connect Slack first in Settings.' };
+       const sh = { Authorization: 'Bearer ' + slackToken };
+       let allMembers = [];
+       let cursor = '';
+       for (let page = 0; page < 10; page++) {
+         const url = 'https://slack.com/api/users.list?limit=200' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
+         const r = await fetch(url, { headers: sh });
+         const d = await r.json();
+         if (!d.ok) return { error: 'Slack API error: ' + (d.error || 'unknown') };
+         allMembers = allMembers.concat(d.members || []);
+         cursor = d.response_metadata?.next_cursor || '';
+         if (!cursor) break;
+       }
+       const q = (input.query || '').toLowerCase();
+       const matches = allMembers
+         .filter(u => !u.deleted && !u.is_bot && u.id !== 'USLACKBOT')
+         .filter(u => {
+           const rn = (u.real_name || '').toLowerCase();
+           const dn = (u.profile?.display_name || '').toLowerCase();
+           const nm = (u.name || '').toLowerCase();
+           const em = (u.profile?.email || '').toLowerCase();
+           const fn = (u.profile?.first_name || '').toLowerCase();
+           const ln = (u.profile?.last_name || '').toLowerCase();
+           return rn.includes(q) || dn.includes(q) || nm.includes(q) || em.includes(q) || fn.includes(q) || ln.includes(q);
+         })
+         .slice(0, 10)
+         .map(u => ({
+           id: u.id, real_name: u.real_name || u.name,
+           display_name: u.profile?.display_name || '',
+           email: u.profile?.email || '', title: u.profile?.title || '',
+           status: u.profile?.status_text || ''
+         }));
+       return { results: matches, count: matches.length, message: matches.length === 0 ? 'No users found matching: ' + input.query : null };
+     }
+     case 'slack_read_dm': {
             if (!slackToken) return { error: 'Slack not connected.' };
             const sh = { Authorization: 'Bearer ' + slackToken, 'Content-Type': 'application/json' };
             // Open (or get existing) DM channel
