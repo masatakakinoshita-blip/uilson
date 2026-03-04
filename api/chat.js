@@ -134,7 +134,7 @@ export default async function handler(req, res) {
         description: 'List all Outlook mail folders with their IDs and unread counts.',
         input_schema: { type: 'object', properties: {} }
       },
-      o/ ===== OUTLOOK CALENDAR TOOLS =====
+      // ===== OUTLOOK CALENDAR TOOLS =====
       {
         name: 'outlook_list_events',
         description: 'List Outlook calendar events in a date range.',
@@ -179,8 +179,8 @@ export default async function handler(req, res) {
       // ===== SLACK DM TOOLS =====
       {
         name: 'slack_search_users',
-        description: 'Search Slack workspace users by name, display_name, email, etc. Returns matching users with their IDs. Use this first to find a DM target. IMPORTANT: If searching with Japanese kanji/hiragana returns no results, retry with romaji (e.g. if æ¨ä¸ fails, try kinoshita). Also try partial matches and English names.',
-        input_schema: { type: 'object', properties: { query: { type: 'string', description: 'Name or partial name to search (e.g. "ç°ä¸­", "Tanaka", "john")' } }, required: ['query'] }
+        description: 'Search Slack workspace users by name, display_name, email, etc. Returns matching users with their IDs. Use this first to find a DM target. IMPORTANT: If searching with Japanese kanji/hiragana returns no results, retry with romaji (e.g. if 木下 fails, try kinoshita). Also try partial matches and English names.',
+        input_schema: { type: 'object', properties: { query: { type: 'string', description: 'Name or partial name to search (e.g. "田中", "Tanaka", "john")' } }, required: ['query'] }
       },
       {
         name: 'slack_read_dm',
@@ -699,7 +699,7 @@ export default async function handler(req, res) {
       const reqBody = { contents: currentContents, generationConfig: { maxOutputTokens: 8192 } };
       if (system) reqBody.systemInstruction = { parts: [{ text: system }] };
       if (googleToken || msToken || slackToken) { reqBody.tools = geminiTools; reqBody.tool_config = { function_calling_config: { mode: 'AUTO' } }; }
-      const { data } = await callGemini(geminiKey, reqBody);
+      const { data, model } = await callGemini(geminiKey, reqBody);
       if (!data.candidates || !data.candidates[0]) {
         return res.status(200).json({ content: [{ type: 'text', text: data.error ? data.error.message : JSON.stringify(data) }] });
       }
