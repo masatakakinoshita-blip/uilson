@@ -692,7 +692,7 @@ export default async function handler(req, res) {
     for (let i = 0; i < 8; i++) {
       const reqBody = { contents: currentContents, generationConfig: { maxOutputTokens: 8192 } };
       if (system) reqBody.systemInstruction = { parts: [{ text: system }] };
-      if (googleToken || msToken || slackToken) reqBody.tools = geminiTools;
+      if (googleToken || msToken || slackToken) { reqBody.tools = geminiTools; reqBody.tool_config = { function_calling_config: { mode: 'AUTO' } }; }
       const { data } = await callGemini(geminiKey, reqBody);
       if (!data.candidates || !data.candidates[0]) {
         return res.status(200).json({ content: [{ type: 'text', text: data.error ? data.error.message : JSON.stringify(data) }] });
