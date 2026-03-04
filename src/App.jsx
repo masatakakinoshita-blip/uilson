@@ -5,7 +5,7 @@ const SCOPES =
   "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive.readonly";
 const SLACK_CLIENT_ID = import.meta.env.VITE_SLACK_CLIENT_ID;
 const SLACK_USER_SCOPES =
-  "channels:read,channels:history,groups:read,groups:history,chat:write,users:read";
+  "channels:read,channels:history,grous:read,groups:history,chat:write,users:read,im:read,im:write,im:history";
 const MS_CLIENT_ID = import.meta.env.VITE_MS_CLIENT_ID;
 const MS_SCOPES = "Mail.Read Calendars.ReadWrite User.Read Sites.Read.All Files.Read.All Chat.Read Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Read.All";
 
@@ -656,6 +656,7 @@ const [driveFiles, setDriveFiles] = useState([]);
           system: systemPrompt,
           googleToken: token,
           msToken: msToken,
+            slackToken: slackToken,
         }),
       });
       const data = await res.json();
