@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from "react";
-
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const GOOGLE_REDIRECT = window.location.origin;
 const SCOPES =
   "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar";
-
 const SLACK_CLIENT_ID = import.meta.env.VITE_SLACK_CLIENT_ID;
-const SLACK_USER_SCOPES = "channels:read,channels:history,groups:read,groups:history,chat:write,users:read";
+const SLACK_USER_SCOPES =
+  "channels:read,channels:history,groups:read,groups:history,chat:write,users:read";
+const MS_CLIENT_ID = import.meta.env.VITE_MS_CLIENT_ID;
+const MS_SCOPES = "Mail.Read Calendars.ReadWrite User.Read";
 
 function slackAuthUrl() {
   return (
@@ -18,7 +19,6 @@ function slackAuthUrl() {
     })
   );
 }
-
 function googleAuthUrl() {
   return (
     "https://accounts.google.com/o/oauth2/v2/auth?" +
@@ -31,14 +31,38 @@ function googleAuthUrl() {
     })
   );
 }
+function msAuthUrl() {
+  return (
+    "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?" +
+    new URLSearchParams({
+      client_id: MS_CLIENT_ID,
+      redirect_uri: window.location.origin,
+      response_type: "code",
+      scope: MS_SCOPES,
+      state: "ms",
+      prompt: "consent",
+    })
+  );
+}
 
 async function fetchGmail(token) {
   const res = await fetch(
-    (() => { const d = new Date(); d.setMonth(d.getMonth() - 2); return "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=100&q=after:" + d.getFullYear() + "/" + (d.getMonth()+1) + "/" + d.getDate(); })(),
+    (() => {
+      const d = new Date();
+      d.setMonth(d.getMonth() - 2);
+      return (
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=100&q=after:" +
+        d.getFullYear() +
+        "/" +
+        (d.getMonth() + 1) +
+        "/" +
+        d.getDate()
+      );
+    })(),
     { headers: { Authorization: "Bearer " + token } }
   );
   if (res.status === 401) throw new Error("AUTH_EXPIRED");
-    const data = await res.json();
+  const data = await res.json();
   if (!data.messages) return [];
   const details = await Promise.all(
     data.messages.slice(0, 50).map((m) =>
@@ -70,9 +94,7 @@ async function fetchCalendar(token) {
   oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
   const oneMonthLater = new Date(now);
   oneMonthLater.setMonth(oneMonthLater.getMonth() + 1);
-  const now = new Date().toISOString();
 
-  // 1. Get all calendars the user has access to (including shared / sub-account)
   let calendarIds = ["primary"];
   try {
     const listRes = await fetch(
@@ -88,7 +110,6 @@ async function fetchCalendar(token) {
     }
   } catch {}
 
-  // 2. Fetch events from every calendar in parallel
   const allEvents = await Promise.all(
     calendarIds.map(async (calId) => {
       try {
@@ -96,10 +117,10 @@ async function fetchCalendar(token) {
           "https://www.googleapis.com/calendar/v3/calendars/" +
             encodeURIComponent(calId) +
             "/events?maxResults=250&timeMin=" +
-          oneMonthAgo.toISOString() +
-          "&timeMax=" +
-          oneMonthLater.toISOString() +
-          "&orderBy=startTime&singleEvents=true",
+            oneMonthAgo.toISOString() +
+            "&timeMax=" +
+            oneMonthLater.toISOString() +
+            "&orderBy=startTime&singleEvents=true",
           { headers }
         );
         const data = await res.json();
@@ -117,7 +138,6 @@ async function fetchCalendar(token) {
     })
   );
 
-  // 3. Flatten, deduplicate by summary+start, and sort by start time
   const seen = new Set();
   return allEvents
     .flat()
@@ -129,6 +149,59 @@ async function fetchCalendar(token) {
     })
     .sort((a, b) => (a.start || "").localeCompare(b.start || ""))
     .slice(0, 200);
+}
+
+async function fetchOutlookMail(msToken) {
+  const now = new Date();
+  const oneMonthAgo = new Date(now);
+  oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+  const filterDate = oneMonthAgo.toISOString();
+  const url =
+    "https://graph.microsoft.com/v1.0/me/messages?$top=50&$filter=receivedDateTime ge " +
+    filterDate +
+    "&$orderby=receivedDateTime desc&$select=id,subject,from,receivedDateTime,bodyPreview";
+  const res = await fetch(url, {
+    headers: { Authorization: "Bearer " + msToken },
+  });
+  if (res.status === 401) throw new Error("MS_AUTH_EXPIRED");
+  const data = await res.json();
+  return (data.value || []).map((m) => ({
+    id: m.id,
+    subject: m.subject || "",
+    from:
+      (m.from?.emailAddress?.name || "") +
+      " <" +
+      (m.from?.emailAddress?.address || "") +
+      ">",
+    date: m.receivedDateTime || "",
+    snippet: m.bodyPreview || "",
+  }));
+}
+
+async function fetchOutlookCalendar(msToken) {
+  const now = new Date();
+  const oneMonthAgo = new Date(now);
+  oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+  const oneMonthLater = new Date(now);
+  oneMonthLater.setMonth(oneMonthLater.getMonth() + 1);
+  const url =
+    "https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=" +
+    oneMonthAgo.toISOString() +
+    "&endDateTime=" +
+    oneMonthLater.toISOString() +
+    "&$top=200&$orderby=start/dateTime&$select=id,subject,start,end,location";
+  const res = await fetch(url, {
+    headers: { Authorization: "Bearer " + msToken },
+  });
+  if (res.status === 401) throw new Error("MS_AUTH_EXPIRED");
+  const data = await res.json();
+  return (data.value || []).map((e) => ({
+    id: e.id,
+    summary: e.subject || "",
+    start: e.start?.dateTime || "",
+    end: e.end?.dateTime || "",
+    location: e.location?.displayName || "",
+  }));
 }
 
 async function fetchSlack(tk) {
@@ -159,8 +232,8 @@ function extractReply(data) {
   return "Error: unexpected response";
 }
 
-function buildContext(emails, events, slackMsgs) {
-  const dayNames = ["日", "月", "火", "水", "木", "金", "土"];
+function buildContext(emails, events, slackMsgs, outlookEmails, outlookEvents) {
+  const dayNames = ["\u65e5", "\u6708", "\u706b", "\u6c34", "\u6728", "\u91d1", "\u571f"];
   let ctx = "";
   if (emails.length) {
     ctx += "\n## Gmail (latest " + emails.length + ")\n";
@@ -168,31 +241,38 @@ function buildContext(emails, events, slackMsgs) {
       const d = e.date ? new Date(e.date) : null;
       const dow = d && !isNaN(d) ? "(" + dayNames[d.getDay()] + ")" : "";
       ctx +=
-        "- [ID:" + e.id + "] From:" +
+        "- [ID:" +
+        e.id +
+        "] From:" +
         e.from +
         " Sub:" +
         e.subject +
         " Date:" +
-        e.date + dow +
+        e.date +
+        dow +
         " Snippet:" +
         e.snippet +
         "\n";
     });
   }
   if (events.length) {
-    ctx += "\n## Calendar (upcoming " + events.length + ")\n";
+    ctx += "\n## Google Calendar (upcoming " + events.length + ")\n";
     events.forEach((e) => {
       const ds = e.start ? new Date(e.start) : null;
       const de = e.end ? new Date(e.end) : null;
       const dowStart = ds ? "(" + dayNames[ds.getDay()] + ")" : "";
       const dowEnd = de ? "(" + dayNames[de.getDay()] + ")" : "";
       ctx +=
-        "- [ID:" + e.id + "] " +
+        "- [ID:" +
+        e.id +
+        "] " +
         e.summary +
         " " +
-        e.start + dowStart +
+        e.start +
+        dowStart +
         " ~ " +
-        e.end + dowEnd +
+        e.end +
+        dowEnd +
         (e.location ? " @" + e.location : "") +
         (e.calendar ? " [" + e.calendar + "]" : "") +
         "\n";
@@ -213,10 +293,53 @@ function buildContext(emails, events, slackMsgs) {
         ")\n";
     });
   }
+  if (outlookEmails && outlookEmails.length) {
+    ctx += "\n## Outlook Mail (latest " + outlookEmails.length + ")\n";
+    outlookEmails.forEach((e) => {
+      const d = e.date ? new Date(e.date) : null;
+      const dow = d && !isNaN(d) ? "(" + dayNames[d.getDay()] + ")" : "";
+      ctx +=
+        "- [ID:" +
+        e.id +
+        "] From:" +
+        e.from +
+        " Sub:" +
+        e.subject +
+        " Date:" +
+        e.date +
+        dow +
+        " Snippet:" +
+        e.snippet +
+        "\n";
+    });
+  }
+  if (outlookEvents && outlookEvents.length) {
+    ctx += "\n## Outlook Calendar (upcoming " + outlookEvents.length + ")\n";
+    outlookEvents.forEach((e) => {
+      const ds = e.start ? new Date(e.start) : null;
+      const de = e.end ? new Date(e.end) : null;
+      const dowStart =
+        ds && !isNaN(ds) ? "(" + dayNames[ds.getDay()] + ")" : "";
+      const dowEnd = de && !isNaN(de) ? "(" + dayNames[de.getDay()] + ")" : "";
+      ctx +=
+        "- [ID:" +
+        e.id +
+        "] " +
+        e.summary +
+        " " +
+        e.start +
+        dowStart +
+        " ~ " +
+        e.end +
+        dowEnd +
+        (e.location ? " @" + e.location : "") +
+        "\n";
+    });
+  }
   return ctx;
 }
 
-/* âââ V16 Design System âââ */
+/* --- V16 Design System --- */
 const V = {
   bg: "#F0F2F7",
   sb: "#FFFFFF",
@@ -249,7 +372,6 @@ body { font-family:'Noto Sans JP',-apple-system,sans-serif; background:${V.bg}; 
 @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 .fi { animation: fadeIn 0.3s ease forwards; }
-
 @media(max-width:768px){
   .uilson-sb { display:none !important; }
   .uilson-mn { width:100% !important; }
@@ -257,14 +379,33 @@ body { font-family:'Noto Sans JP',-apple-system,sans-serif; background:${V.bg}; 
 `;
 
 export default function App() {
-  const [token, setToken] = useState(localStorage.getItem("g_token") || "");
+  const [token, setToken] = useState(
+    localStorage.getItem("g_token") || ""
+  );
   const [emails, setEmails] = useState([]);
   const [events, setEvents] = useState([]);
-  const [googleEmail, setGoogleEmail] = useState(localStorage.getItem("g_email") || "");
+  const [googleEmail, setGoogleEmail] = useState(
+    localStorage.getItem("g_email") || ""
+  );
   const [slackConnected, setSlackConnected] = useState(false);
-  const [slackToken, setSlackToken] = useState(localStorage.getItem("slack_token"));
+  const [slackToken, setSlackToken] = useState(
+    localStorage.getItem("slack_token")
+  );
   const [slackMsgs, setSlackMsgs] = useState([]);
-  const [slackEmail, setSlackEmail] = useState(localStorage.getItem("slack_email") || "");
+  const [slackEmail, setSlackEmail] = useState(
+    localStorage.getItem("slack_email") || ""
+  );
+
+  // Outlook state
+  const [msToken, setMsToken] = useState(
+    localStorage.getItem("ms_token") || ""
+  );
+  const [msEmail, setMsEmail] = useState(
+    localStorage.getItem("ms_email") || ""
+  );
+  const [outlookEmails, setOutlookEmails] = useState([]);
+  const [outlookEvents, setOutlookEvents] = useState([]);
+
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -272,6 +413,7 @@ export default function App() {
   const [sbCollapsed, setSbCollapsed] = useState(false);
   const bottomRef = useRef(null);
 
+  // Google OAuth (hash fragment)
   useEffect(() => {
     const hash = window.location.hash;
     if (hash.includes("access_token")) {
@@ -284,17 +426,27 @@ export default function App() {
     }
   }, []);
 
+  // Google data fetch
   useEffect(() => {
     if (token) {
-      fetchGmail(token).then(setEmails).catch((e) => {
-        console.error(e);
-        if (e.message === "AUTH_EXPIRED") { localStorage.removeItem("g_token"); setToken(null); }
-      });
-      fetchCalendar(token).then(setEvents).catch((e) => {
-        console.error(e);
-        if (e.message === "AUTH_EXPIRED") { localStorage.removeItem("g_token"); setToken(null); }
-      });
-      // Fetch Google email
+      fetchGmail(token)
+        .then(setEmails)
+        .catch((e) => {
+          console.error(e);
+          if (e.message === "AUTH_EXPIRED") {
+            localStorage.removeItem("g_token");
+            setToken(null);
+          }
+        });
+      fetchCalendar(token)
+        .then(setEvents)
+        .catch((e) => {
+          console.error(e);
+          if (e.message === "AUTH_EXPIRED") {
+            localStorage.removeItem("g_token");
+            setToken(null);
+          }
+        });
       fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", {
         headers: { Authorization: "Bearer " + token },
       })
@@ -309,13 +461,35 @@ export default function App() {
     }
   }, [token]);
 
-
   // Slack OAuth callback
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
-    if (code && !params.get("access_token")) {
-      fetch("/api/slack-oauth?code=" + code + "&redirect_uri=" + encodeURIComponent(window.location.origin))
+    const state = params.get("state");
+    if (code && state === "ms") {
+      // Microsoft OAuth callback
+      fetch(
+        "/api/ms-oauth?code=" +
+          code +
+          "&redirect_uri=" +
+          encodeURIComponent(window.location.origin)
+      )
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.ok && data.access_token) {
+            localStorage.setItem("ms_token", data.access_token);
+            setMsToken(data.access_token);
+            window.history.replaceState({}, "", window.location.pathname);
+          }
+        });
+    } else if (code && !params.get("access_token")) {
+      // Slack OAuth callback
+      fetch(
+        "/api/slack-oauth?code=" +
+          code +
+          "&redirect_uri=" +
+          encodeURIComponent(window.location.origin)
+      )
         .then((r) => r.json())
         .then((data) => {
           if (data.ok && data.access_token) {
@@ -327,6 +501,7 @@ export default function App() {
     }
   }, []);
 
+  // Slack data fetch
   useEffect(() => {
     if (slackToken) {
       fetchSlack(slackToken)
@@ -336,13 +511,16 @@ export default function App() {
         })
         .catch(console.error);
     }
-    // Fetch Slack user email
     if (slackToken) {
-      fetch("/api/slack-userinfo?token=" + encodeURIComponent(slackToken))
+      fetch(
+        "/api/slack-userinfo?token=" + encodeURIComponent(slackToken)
+      )
         .then((r) => r.json())
         .then((d) => {
           if (d.ok) {
-            const info = d.email || (d.user ? d.user + " @ " + (d.team || "Slack") : null);
+            const info =
+              d.email ||
+              (d.user ? d.user + " @ " + (d.team || "Slack") : null);
             if (info) {
               setSlackEmail(info);
               localStorage.setItem("slack_email", info);
@@ -353,6 +531,44 @@ export default function App() {
     }
   }, [slackToken]);
 
+  // Outlook data fetch
+  useEffect(() => {
+    if (msToken) {
+      fetchOutlookMail(msToken)
+        .then(setOutlookEmails)
+        .catch((e) => {
+          console.error(e);
+          if (e.message === "MS_AUTH_EXPIRED") {
+            localStorage.removeItem("ms_token");
+            setMsToken("");
+          }
+        });
+      fetchOutlookCalendar(msToken)
+        .then(setOutlookEvents)
+        .catch((e) => {
+          console.error(e);
+          if (e.message === "MS_AUTH_EXPIRED") {
+            localStorage.removeItem("ms_token");
+            setMsToken("");
+          }
+        });
+      // Fetch Outlook user email
+      fetch("https://graph.microsoft.com/v1.0/me", {
+        headers: { Authorization: "Bearer " + msToken },
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          const email =
+            d.mail || d.userPrincipalName || "";
+          if (email) {
+            setMsEmail(email);
+            localStorage.setItem("ms_email", email);
+          }
+        })
+        .catch(console.error);
+    }
+  }, [msToken]);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -360,7 +576,9 @@ export default function App() {
   const getContext = async () => {
     let e = emails,
       ev = events,
-      sm = slackMsgs;
+      sm = slackMsgs,
+      oe = outlookEmails,
+      oev = outlookEvents;
     if (token) {
       try {
         e = await fetchGmail(token);
@@ -375,7 +593,15 @@ export default function App() {
       setSlackMsgs(sm);
       setSlackConnected(r.connected);
     } catch {}
-    return buildContext(e, ev, sm);
+    if (msToken) {
+      try {
+        oe = await fetchOutlookMail(msToken);
+        setOutlookEmails(oe);
+        oev = await fetchOutlookCalendar(msToken);
+        setOutlookEvents(oev);
+      } catch {}
+    }
+    return buildContext(e, ev, sm, oe, oev);
   };
 
   const send = async (text) => {
@@ -386,13 +612,19 @@ export default function App() {
     setLoading(true);
     try {
       const ctx = await getContext();
-      const dowNames = ["日", "月", "火", "水", "木", "金", "土"];
+      const dowNames = ["\u65e5", "\u6708", "\u706b", "\u6c34", "\u6728", "\u91d1", "\u571f"];
+      const currentDate = new Date();
       const systemPrompt =
         "You are UILSON, a professional AI business assistant. Current: " +
-        new Date().toLocaleString("ja-JP") + " (" + dowNames[now.getDay()] + "曜日)" +
+        currentDate.toLocaleString("ja-JP") +
+        " (" +
+        dowNames[currentDate.getDay()] +
+        "\u66DC\u65E5)" +
         "\nUser data:" +
         ctx +
-        "\nReply in user language. For greetings, give a brief daily briefing using Gmail, Calendar, and Slack data.\nIMPORTANT: Calendar events already include correct day-of-week labels like (月)(火). Always use these labels as-is. Never guess or recalculate day-of-week yourself.";
+        "\nReply in user language. For greetings, give a brief daily briefing using Gmail, Calendar, Slack, and Outlook data." +
+        "\nIMPORTANT: Calendar events already include correct day-of-week labels like (\u6708)(\u706b). Always use these labels as-is. Never guess or recalculate day-of-week yourself." +
+        "\nFor Outlook calendar operations, use outlook_calendar_create/update/delete tools.";
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -402,6 +634,7 @@ export default function App() {
             .map((m) => ({ role: m.role, content: m.content })),
           system: systemPrompt,
           googleToken: token,
+          msToken: msToken,
         }),
       });
       const data = await res.json();
@@ -418,20 +651,20 @@ export default function App() {
 
   const quickActions = [
     {
-      label: "âï¸ ä»æ¥ã®ããªã¼ãã£ã³ã°",
-      text: "ãã¯ããï¼ä»æ¥ã®ããªã¼ãã£ã³ã°ããã ããã",
+      label: "\u2615\uFE0F \u4ECA\u65E5\u306E\u30D6\u30EA\u30FC\u30D5\u30A3\u30F3\u30B0",
+      text: "\u304A\u306F\u3088\u3046\uFF01\u4ECA\u65E5\u306E\u30D6\u30EA\u30FC\u30D5\u30A3\u30F3\u30B0\u3092\u304F\u3060\u3055\u3044\u3002",
     },
     {
-      label: "âï¸ æªèª­ã¡ã¼ã«",
-      text: "æªèª­ã¡ã¼ã«ãè¦ç´ãã¦ãã ããã",
+      label: "\u2709\uFE0F \u672A\u8AAD\u30E1\u30FC\u30EB",
+      text: "\u672A\u8AAD\u30E1\u30FC\u30EB\u3092\u8981\u7D04\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
     },
     {
-      label: "ð ä»æ¥ã®äºå®",
-      text: "ä»æ¥ã®ã«ã¬ã³ãã¼ã®äºå®ã¯ï¼",
+      label: "\uD83D\uDCC5 \u4ECA\u65E5\u306E\u4E88\u5B9A",
+      text: "\u4ECA\u65E5\u306E\u30AB\u30EC\u30F3\u30C0\u30FC\u306E\u4E88\u5B9A\u306F\uFF1F",
     },
     {
-      label: "ð¬ Slackã¡ãã»ã¼ã¸",
-      text: "æè¿ã®Slackã¡ãã»ã¼ã¸ãè¦ãã¦ã",
+      label: "\uD83D\uDCAC Slack\u30E1\u30C3\u30BB\u30FC\u30B8",
+      text: "\u6700\u8FD1\u306ESlack\u30E1\u30C3\u30BB\u30FC\u30B8\u3092\u898B\u305B\u3066\u3002",
     },
   ];
 
@@ -444,7 +677,6 @@ export default function App() {
     setGoogleEmail("");
   };
 
-  /* âââ Sidebar Nav Items âââ */
   const slackLogout = () => {
     localStorage.removeItem("slack_token");
     localStorage.removeItem("slack_email");
@@ -454,16 +686,32 @@ export default function App() {
     setSlackEmail("");
   };
 
+  const msLogout = () => {
+    localStorage.removeItem("ms_token");
+    localStorage.removeItem("ms_email");
+    setMsToken("");
+    setMsEmail("");
+    setOutlookEmails([]);
+    setOutlookEvents([]);
+  };
+
   const navItems = [
-    { id: "chat", icon: "ð¬", label: "æç¤ºãã" },
-    { id: "settings", icon: "âï¸", label: "è¨­å®" },
+    { id: "chat", icon: "\uD83D\uDCAC", label: "\u6307\u793A\u51FA\u3057" },
+    { id: "settings", icon: "\u2699\uFE0F", label: "\u8A2D\u5B9A" },
   ];
 
   return (
     <>
       <style>{globalCSS}</style>
-      <div style={{ display: "flex", height: "100vh", background: V.bg, color: V.t1 }}>
-        {/* âââ Sidebar âââ */}
+      <div
+        style={{
+          display: "flex",
+          height: "100vh",
+          background: V.bg,
+          color: V.t1,
+        }}
+      >
+        {/* --- Sidebar --- */}
         <div
           className="uilson-sb"
           style={{
@@ -531,7 +779,7 @@ export default function App() {
                   UILSON
                 </div>
                 <div style={{ fontSize: 11, color: V.t4, marginTop: 1 }}>
-                  AIæ¥­åã¢ã·ã¹ã¿ã³ã
+                  AI\u696D\u52D9\u30A2\u30B7\u30B9\u30BF\u30F3\u30C8
                 </div>
               </div>
             )}
@@ -554,7 +802,7 @@ export default function App() {
                   flexShrink: 0,
                 }}
               >
-                â
+                \u25C0
               </div>
             )}
             {sbCollapsed && (
@@ -578,11 +826,10 @@ export default function App() {
                   zIndex: 10,
                 }}
               >
-                â¶
+                \u25B6
               </div>
             )}
           </div>
-
           {/* Nav */}
           <div style={{ flex: 1, padding: "10px 8px", overflowY: "auto" }}>
             {navItems.map((n) => (
@@ -603,9 +850,7 @@ export default function App() {
                   color: view === n.id ? V.accent : V.t2,
                   fontWeight: view === n.id ? 600 : 500,
                   background:
-                    view === n.id
-                      ? "rgba(60,89,150,0.08)"
-                      : "transparent",
+                    view === n.id ? "rgba(60,89,150,0.08)" : "transparent",
                   justifyContent: sbCollapsed ? "center" : "flex-start",
                 }}
               >
@@ -623,17 +868,26 @@ export default function App() {
                     }}
                   />
                 )}
-                <span style={{ fontSize: 19, flexShrink: 0, width: 22, textAlign: "center" }}>
+                <span
+                  style={{
+                    fontSize: 19,
+                    flexShrink: 0,
+                    width: 22,
+                    textAlign: "center",
+                  }}
+                >
                   {n.icon}
                 </span>
                 {!sbCollapsed && <span>{n.label}</span>}
               </div>
             ))}
-
-            {/* Separator */}
-            <div style={{ height: 1, background: V.border, margin: "10px 14px" }} />
-
-            {/* Connection Status */}
+            <div
+              style={{
+                height: 1,
+                background: V.border,
+                margin: "10px 14px",
+              }}
+            />
             {!sbCollapsed && (
               <>
                 <div
@@ -645,11 +899,12 @@ export default function App() {
                     letterSpacing: 0.5,
                   }}
                 >
-                  {"æ¥ç¶ä¸­ã®ã·ã¹ãã "}
+                  {"\u63A5\u7D9A\u4E2D\u306E\u30B7\u30B9\u30C6\u30E0"}
                 </div>
                 {[
                   { name: "Google", on: !!token },
                   { name: "Slack", on: slackConnected },
+                  { name: "Outlook", on: !!msToken },
                 ].map((c) => (
                   <div
                     key={c.name}
@@ -679,7 +934,6 @@ export default function App() {
               </>
             )}
           </div>
-
           {/* User area */}
           <div
             style={{
@@ -710,14 +964,16 @@ export default function App() {
             </div>
             {!sbCollapsed && (
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: V.t1 }}>Masataka</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: V.t1 }}>
+                  Masataka
+                </div>
                 <div style={{ fontSize: 11, color: V.t4 }}>v2.0</div>
               </div>
             )}
           </div>
         </div>
 
-        {/* âââ Main âââ */}
+        {/* --- Main --- */}
         <div
           className="uilson-mn"
           style={{
@@ -729,8 +985,14 @@ export default function App() {
           }}
         >
           {view === "settings" ? (
-            /* âââ Settings View âââ */
-            <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+            /* --- Settings View --- */
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                height: "100%",
+              }}
+            >
               <div
                 style={{
                   padding: "12px 24px",
@@ -743,15 +1005,16 @@ export default function App() {
               >
                 <div>
                   <div style={{ fontSize: 20, fontWeight: 700, color: V.t1 }}>
-                    {"âï¸ è¨­å®"}
+                    {"\u2699\uFE0F \u8A2D\u5B9A"}
                   </div>
                   <div style={{ fontSize: 14, color: V.t3, marginTop: 2 }}>
-                    {"å¤é¨ãµã¼ãã¹ã®æ¥ç¶ç®¡ç"}
+                    {"\u5916\u90E8\u30B5\u30FC\u30D3\u30B9\u306E\u63A5\u7D9A\u7BA1\u7406"}
                   </div>
                 </div>
               </div>
               <div
-                style={{                  flex: 1,
+                style={{
+                  flex: 1,
                   overflowY: "auto",
                   padding: "20px 24px",
                 }}
@@ -778,10 +1041,7 @@ export default function App() {
                       fontWeight: 600,
                     }}
                   >
-                    <span>
-                      {"ð"}
-                    </span>{" "}
-                    Googleã¢ã«ã¦ã³ã
+                    <span>{"\uD83D\uDD0D"}</span> Google\u30A2\u30AB\u30A6\u30F3\u30C8
                   </div>
                   <div style={{ padding: 16 }}>
                     {token ? (
@@ -803,17 +1063,36 @@ export default function App() {
                               boxShadow: "0 0 4px rgba(46,125,50,0.3)",
                             }}
                           />
-                          <span style={{ color: V.green, fontWeight: 600, fontSize: 14 }}>
-                            {"æ¥ç¶æ¸ã¿"}
+                          <span
+                            style={{
+                              color: V.green,
+                              fontWeight: 600,
+                              fontSize: 14,
+                            }}
+                          >
+                            {"\u63A5\u7D9A\u6E08\u307F"}
                           </span>
                           {googleEmail && (
-                            <span style={{ fontSize: 13, color: V.t3, marginLeft: 8 }}>
+                            <span
+                              style={{
+                                fontSize: 13,
+                                color: V.t3,
+                                marginLeft: 8,
+                              }}
+                            >
                               ({googleEmail})
                             </span>
                           )}
                         </div>
-                        <div style={{ fontSize: 13, color: V.t3, marginBottom: 12 }}>
-                          Gmail: {emails.length}ä»¶ / Calendar: {events.length}ä»¶
+                        <div
+                          style={{
+                            fontSize: 13,
+                            color: V.t3,
+                            marginBottom: 12,
+                          }}
+                        >
+                          Gmail: {emails.length}\u4EF6 / Calendar:{" "}
+                          {events.length}\u4EF6
                         </div>
                         <button
                           onClick={logout}
@@ -828,13 +1107,19 @@ export default function App() {
                             fontFamily: "inherit",
                           }}
                         >
-                          {"åæ­"}
+                          {"\u5207\u65AD"}
                         </button>
                       </>
                     ) : (
                       <>
-                        <div style={{ fontSize: 14, color: V.t3, marginBottom: 12 }}>
-                          {"æªæ¥ç¶ â Gmailã¨ã«ã¬ã³ãã¼ãé£æºãã¾ã"}
+                        <div
+                          style={{
+                            fontSize: 14,
+                            color: V.t3,
+                            marginBottom: 12,
+                          }}
+                        >
+                          {"\u672A\u63A5\u7D9A \u2014 Gmail\u3068\u30AB\u30EC\u30F3\u30C0\u30FC\u3092\u9023\u643A\u3057\u307E\u3059"}
                         </div>
                         <a
                           href={googleAuthUrl()}
@@ -852,7 +1137,7 @@ export default function App() {
                             textDecoration: "none",
                           }}
                         >
-                          Googleãæ¥ç¶
+                          Google\u3092\u63A5\u7D9A
                         </a>
                       </>
                     )}
@@ -881,10 +1166,7 @@ export default function App() {
                       fontWeight: 600,
                     }}
                   >
-                    <span>
-                      {"ð¬"}
-                    </span>{" "}
-                    Slack
+                    <span>{"\uD83D\uDCAC"}</span> Slack
                   </div>
                   <div style={{ padding: 16 }}>
                     {slackConnected ? (
@@ -906,19 +1188,31 @@ export default function App() {
                               boxShadow: "0 0 4px rgba(46,125,50,0.3)",
                             }}
                           />
-                          <span style={{ color: V.green, fontWeight: 600, fontSize: 14 }}>
-                            {"æ¥ç¶æ¸ã¿"}
+                          <span
+                            style={{
+                              color: V.green,
+                              fontWeight: 600,
+                              fontSize: 14,
+                            }}
+                          >
+                            {"\u63A5\u7D9A\u6E08\u307F"}
                           </span>
                           {slackEmail && (
-                            <span style={{ fontSize: 13, color: V.t3, marginLeft: 8 }}>
+                            <span
+                              style={{
+                                fontSize: 13,
+                                color: V.t3,
+                                marginLeft: 8,
+                              }}
+                            >
                               ({slackEmail})
                             </span>
                           )}
                         </div>
                         <div style={{ fontSize: 13, color: V.t3 }}>
-                          {slackMsgs.length}ä»¶ã®ã¡ãã»ã¼ã¸ãåå¾
+                          {slackMsgs.length}
+                          \u4EF6\u306E\u30E1\u30C3\u30BB\u30FC\u30B8\u3092\u53D6\u5F97
                         </div>
-                      
                         <button
                           onClick={slackLogout}
                           style={{
@@ -932,30 +1226,162 @@ export default function App() {
                             marginTop: 8,
                           }}
                         >
-                          {"åæ­"}
+                          {"\u5207\u65AD"}
                         </button>
                       </>
                     ) : (
                       <>
-                      <div style={{ fontSize: 14, color: V.t3, marginBottom: 8 }}>
-                        {"æªæ¥ç¶"}
-                      </div>
-                      <a
-                        href={slackAuthUrl()}
-                        style={{
-                          display: "inline-block",
-                          padding: "8px 18px",
-                          borderRadius: 7,
-                          border: "none",
-                          background: `linear-gradient(135deg, ${V.accent}, ${V.accent}cc)`,
-                          color: "#fff",
-                          fontSize: 14,
-                          textDecoration: "none",
-                          cursor: "pointer",
-                        }}
-                      >
-                        {"Slackãæ¥ç¶"}
-                      </a>
+                        <div
+                          style={{
+                            fontSize: 14,
+                            color: V.t3,
+                            marginBottom: 8,
+                          }}
+                        >
+                          {"\u672A\u63A5\u7D9A"}
+                        </div>
+                        <a
+                          href={slackAuthUrl()}
+                          style={{
+                            display: "inline-block",
+                            padding: "8px 18px",
+                            borderRadius: 7,
+                            border: "none",
+                            background: `linear-gradient(135deg, ${V.accent}, ${V.accent}cc)`,
+                            color: "#fff",
+                            fontSize: 14,
+                            textDecoration: "none",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {"Slack\u3092\u63A5\u7D9A"}
+                        </a>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Outlook Card */}
+                <div
+                  style={{
+                    background: V.card,
+                    borderRadius: 10,
+                    border: `1px solid ${V.border}`,
+                    overflow: "hidden",
+                    marginBottom: 14,
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: "14px 16px",
+                      borderBottom: `1px solid ${V.border}`,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      fontSize: 16,
+                      fontWeight: 600,
+                    }}
+                  >
+                    <span>{"\uD83D\uDCE7"}</span> Outlook (Microsoft 365)
+                  </div>
+                  <div style={{ padding: 16 }}>
+                    {msToken ? (
+                      <>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            marginBottom: 12,
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: 8,
+                              height: 8,
+                              borderRadius: "50%",
+                              background: V.green,
+                              boxShadow: "0 0 4px rgba(46,125,50,0.3)",
+                            }}
+                          />
+                          <span
+                            style={{
+                              color: V.green,
+                              fontWeight: 600,
+                              fontSize: 14,
+                            }}
+                          >
+                            {"\u63A5\u7D9A\u6E08\u307F"}
+                          </span>
+                          {msEmail && (
+                            <span
+                              style={{
+                                fontSize: 13,
+                                color: V.t3,
+                                marginLeft: 8,
+                              }}
+                            >
+                              ({msEmail})
+                            </span>
+                          )}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 13,
+                            color: V.t3,
+                            marginBottom: 12,
+                          }}
+                        >
+                          Mail: {outlookEmails.length}\u4EF6 / Calendar:{" "}
+                          {outlookEvents.length}\u4EF6
+                        </div>
+                        <button
+                          onClick={msLogout}
+                          style={{
+                            padding: "8px 18px",
+                            borderRadius: 7,
+                            border: `1px solid ${V.red}`,
+                            background: "transparent",
+                            color: V.red,
+                            fontSize: 14,
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                          }}
+                        >
+                          {"\u5207\u65AD"}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <div
+                          style={{
+                            fontSize: 14,
+                            color: V.t3,
+                            marginBottom: 12,
+                          }}
+                        >
+                          {"\u672A\u63A5\u7D9A \u2014 Outlook\u30E1\u30FC\u30EB\u3068\u30AB\u30EC\u30F3\u30C0\u30FC\u3092\u9023\u643A\u3057\u307E\u3059"}
+                        </div>
+                        <a
+                          href={msAuthUrl()}
+                          style={{
+                            display: "inline-block",
+                            padding: "8px 18px",
+                            borderRadius: 7,
+                            border: "none",
+                            background:
+                              "linear-gradient(135deg, #0078D4, #106EBE)",
+                            color: V.white,
+                            fontSize: 15,
+                            fontWeight: 600,
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                            textDecoration: "none",
+                          }}
+                        >
+                          Outlook\u3092\u63A5\u7D9A
+                        </a>
                       </>
                     )}
                   </div>
@@ -963,8 +1389,14 @@ export default function App() {
               </div>
             </div>
           ) : (
-            /* âââ Chat View âââ */
-            <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+            /* --- Chat View --- */
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                height: "100%",
+              }}
+            >
               {/* Top Bar */}
               <div
                 style={{
@@ -979,10 +1411,10 @@ export default function App() {
               >
                 <div>
                   <div style={{ fontSize: 20, fontWeight: 700, color: V.t1 }}>
-                    {"ð¬ æç¤ºãã"}
+                    {"\uD83D\uDCAC \u6307\u793A\u51FA\u3057"}
                   </div>
                   <div style={{ fontSize: 14, color: V.t3, marginTop: 2 }}>
-                    {"AIãã¡ã¼ã«ã»ã«ã¬ã³ãã¼ã»Slackãæ¨ªæ­ãã¦å¤æ­ãã¾ã"}
+                    {"AI\u304C\u30E1\u30FC\u30EB\u30FB\u30AB\u30EC\u30F3\u30C0\u30FC\u30FBSlack\u30FBOutlook\u3092\u6A2A\u65AD\u3057\u3066\u5224\u65AD\u3057\u307E\u3059"}
                   </div>
                 </div>
                 <div
@@ -993,11 +1425,12 @@ export default function App() {
                     alignItems: "center",
                   }}
                 >
-                  {/* Connection dots */}
                   {[
                     { name: "Gmail", on: !!token },
                     { name: "Calendar", on: !!token },
                     { name: "Slack", on: slackConnected },
+                    { name: "Outlook Mail", on: !!msToken },
+                    { name: "Outlook Cal", on: !!msToken },
                   ].map((s) => (
                     <span
                       key={s.name}
@@ -1028,7 +1461,6 @@ export default function App() {
                   ))}
                 </div>
               </div>
-
               {/* Chat Area */}
               <div
                 style={{
@@ -1051,9 +1483,9 @@ export default function App() {
                       gap: 20,
                     }}
                   >
-                    {/* Logo */}
                     <div
-                      style={{                     width: 64,
+                      style={{
+                        width: 64,
                         height: 64,
                         borderRadius: 16,
                         background: `linear-gradient(135deg, ${V.teal}, ${V.accent})`,
@@ -1091,7 +1523,7 @@ export default function App() {
                         UILSON
                       </div>
                       <div style={{ fontSize: 14, color: V.t3 }}>
-                        {"AIæ¥­åã¢ã·ã¹ã¿ã³ã â ä½ã§ãè´ãã¦ãã ãã"}
+                        {"AI\u696D\u52D9\u30A2\u30B7\u30B9\u30BF\u30F3\u30C8 \u2014 \u4F55\u3067\u3082\u8074\u3044\u3066\u304F\u3060\u3055\u3044"}
                       </div>
                     </div>
                     <div
@@ -1122,7 +1554,8 @@ export default function App() {
                           onMouseOver={(e) => {
                             e.currentTarget.style.borderColor = V.accent;
                             e.currentTarget.style.color = V.accent;
-                            e.currentTarget.style.transform = "translateY(-1px)";
+                            e.currentTarget.style.transform =
+                              "translateY(-1px)";
                           }}
                           onMouseOut={(e) => {
                             e.currentTarget.style.borderColor = V.border;
@@ -1136,13 +1569,15 @@ export default function App() {
                     </div>
                   </div>
                 )}
-
                 {messages.map((m, i) =>
                   m.role === "user" ? (
                     <div
                       key={i}
                       className="fi"
-                      style={{ display: "flex", justifyContent: "flex-end" }}
+                      style={{
+                        display: "flex",
+                        justifyContent: "flex-end",
+                      }}
                     >
                       <div
                         style={{
@@ -1203,9 +1638,14 @@ export default function App() {
                     </div>
                   )
                 )}
-
                 {loading && (
-                  <div style={{ display: "flex", gap: 10, maxWidth: "75%" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 10,
+                      maxWidth: "75%",
+                    }}
+                  >
                     <div
                       style={{
                         width: 30,
@@ -1233,15 +1673,18 @@ export default function App() {
                         color: V.t3,
                       }}
                     >
-                      <span style={{ animation: "pulse 1.2s ease-in-out infinite" }}>
-                        {"ð æå ±ãåéã»åæä¸­..."}
+                      <span
+                        style={{
+                          animation: "pulse 1.2s ease-in-out infinite",
+                        }}
+                      >
+                        {"\uD83D\uDD0D \u60C5\u5831\u3092\u53CE\u96C6\u30FB\u5206\u6790\u4E2D..."}
                       </span>
                     </div>
                   </div>
                 )}
                 <div ref={bottomRef} />
               </div>
-
               {/* Input Bar */}
               <div
                 style={{
@@ -1273,7 +1716,9 @@ export default function App() {
                       e.keyCode !== 229 &&
                       send(input)
                     }
-                    placeholder={"ä¾ï¼ãä»æ¥ã®äºå®æãã¦ããæªèª­ã¡ã¼ã«ãè¦ç´ãã¦ã"}
+                    placeholder={
+                      "\u4F8B\uFF1A\u300C\u4ECA\u65E5\u306E\u4E88\u5B9A\u6559\u3048\u3066\u300D\u300C\u672A\u8AAD\u30E1\u30FC\u30EB\u3092\u8981\u7D04\u3057\u3066\u300D"
+                    }
                     style={{
                       flex: 1,
                       border: "none",
@@ -1300,7 +1745,7 @@ export default function App() {
                       opacity: loading ? 0.6 : 1,
                     }}
                   >
-                    {"éä¿¡ â"}
+                    {"\u9001\u4FE1 \u2192"}
                   </button>
                 </div>
               </div>
