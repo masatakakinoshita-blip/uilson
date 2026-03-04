@@ -1,5 +1,5 @@
 // Gemini model fallback chain: try models in order, skip to next on 404/deprecated
-const GEMINI_MODELS = [
+const GEMINI_MODELS = [ 
   'gemini-2.5-flash',
   'gemini-2.5-pro',
 ];
@@ -7,7 +7,7 @@ const GEMINI_MODELS = [
 async function callGemini(apiKey, reqBody) {
   for (const model of GEMINI_MODELS) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    const resp = await fetch(url, {
+    const resp = await fetch(url, 
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(reqBody),
