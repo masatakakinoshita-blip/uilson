@@ -1,0 +1,606 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;600;700;800&display=swap');
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg: #F0F2F7;
+  --sb: #FFFFFF;
+  --main: #F5F6FA;
+  --card: #FFFFFF;
+  --border: #DDE1EB;
+  --border2: #C8CDD8;
+  --t1: #333333;
+  --t2: #555555;
+  --t3: #888888;
+  --t4: #AAAAAA;
+  --white: #FFF;
+  --accent: #3C5996;
+  --teal: #2B4070;
+  --navy: #1E2D50;
+  --blue: #3C5996;
+  --red: #C83732;
+  --green: #2E7D32;
+  --orange: #D4880F;
+  --purple: #5C4D8A;
+  --lime: #ABCD00;
+}
+
+body {
+  font-family: 'Noto Sans JP', sans-serif;
+  background: var(--bg);
+  overflow: hidden;
+  height: 100vh;
+  color: var(--t1);
+}
+
+/* Scrollbar styles */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border2);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border);
+}
+
+/* Keyframes */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes stepIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes blink {
+  0%, 100% {
+    border-color: var(--accent);
+  }
+  50% {
+    border-color: transparent;
+  }
+}
+
+/* Animation utility classes */
+.fi {
+  animation: fadeIn 0.3s ease forwards;
+}
+
+.pulse {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+/* Card styles */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.card-h {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.card-b {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+/* Button styles */
+.bp {
+  background: var(--accent);
+  color: var(--white);
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.2s ease;
+}
+
+.bp:hover {
+  background: var(--navy);
+}
+
+.bs {
+  background: var(--main);
+  color: var(--t1);
+  border: 1px solid var(--border);
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.bs:hover {
+  background: var(--card);
+  border-color: var(--border2);
+}
+
+/* Badge styles */
+.badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--main);
+  color: var(--t1);
+}
+
+/* Utility classes */
+.hidden {
+  display: none;
+}
+
+/* Vertical tabs */
+.vtabs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vtab {
+  padding: 12px 16px;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  background: var(--main);
+  border-radius: 0 6px 6px 0;
+  transition: all 0.2s ease;
+}
+
+.vtab.active {
+  background: var(--card);
+  border-left-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Task row styles */
+.task-row {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  gap: 12px;
+}
+
+.task-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.task-status.running {
+  background: var(--blue);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.task-status.done {
+  background: var(--green);
+}
+
+.task-status.wait {
+  background: var(--orange);
+}
+
+.task-status.sched {
+  background: var(--t3);
+}
+
+/* Grid layouts */
+.g2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.g3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+/* Risk level styles */
+.risk-high {
+  color: var(--red);
+  background: rgba(200, 55, 50, 0.1);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.risk-med {
+  color: var(--orange);
+  background: rgba(212, 136, 15, 0.1);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.risk-low {
+  color: var(--green);
+  background: rgba(46, 125, 50, 0.1);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Flow step styles */
+.flow-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--main);
+  border-radius: 6px;
+}
+
+.flow-num {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  color: var(--white);
+  background: var(--accent);
+}
+
+.flow-num.done {
+  background: var(--green);
+}
+
+.flow-num.active {
+  background: var(--accent);
+  animation: blink 1s infinite;
+}
+
+/* Permission table styles */
+.perm-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.perm-table th {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 2px solid var(--border);
+  font-weight: 600;
+  background: var(--main);
+  color: var(--t1);
+}
+
+.perm-table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.perm-table tr:hover {
+  background: var(--main);
+}
+
+/* Content creation card styles */
+.cre-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.cre-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--main);
+  color: var(--t1);
+}
+
+.cre-add {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: var(--white);
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 300;
+}
+
+/* Mobile navigation tabs */
+.mob-tabs {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+  height: 54px;
+  flex-direction: row;
+  gap: 0;
+  padding: 0;
+  z-index: 100;
+}
+
+.mob-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+  color: var(--t3);
+  font-size: 12px;
+  border: none;
+  background: none;
+  transition: all 0.2s ease;
+}
+
+.mob-tab.active {
+  color: var(--accent);
+}
+
+/* 3-panel layout */
+.panel-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+  height: 100%;
+}
+
+/* Think box styles */
+.think-box {
+  background: var(--main);
+  border-left: 3px solid var(--accent);
+  padding: 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--t2);
+  margin: 8px 0;
+}
+
+/* Source row styles */
+.src-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: var(--main);
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+/* Judge card styles */
+.judge-c {
+  background: var(--card);
+  border-left: 4px solid var(--accent);
+  padding: 16px;
+  border-radius: 6px;
+  gap: 12px;
+}
+
+/* Observation screen styles */
+.obs-screen {
+  background: var(--navy);
+  color: var(--white);
+  padding: 16px;
+  border-radius: 8px;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  min-height: 200px;
+  overflow-y: auto;
+}
+
+/* Pattern card styles */
+.pattern-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  padding: 16px;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.pattern-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 2px 8px rgba(60, 89, 150, 0.1);
+}
+
+/* Skill preview styles */
+.skill-preview {
+  background: var(--card);
+  border: 1px solid var(--border);
+  padding: 16px;
+  border-radius: 8px;
+}
+
+/* Scope badge styles */
+.scope-self {
+  background: rgba(46, 125, 50, 0.1);
+  color: var(--green);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.scope-team {
+  background: rgba(60, 89, 150, 0.1);
+  color: var(--accent);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Dialog button styles */
+.dialog-btn {
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--main);
+  color: var(--t1);
+  cursor: pointer;
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.dialog-btn:hover {
+  background: var(--card);
+  border-color: var(--border2);
+}
+
+.dialog-btn.primary {
+  background: var(--accent);
+  color: var(--white);
+  border-color: var(--accent);
+}
+
+.dialog-btn.primary:hover {
+  background: var(--navy);
+  border-color: var(--navy);
+}
+
+/* Responsive breakpoints */
+@media (max-width: 900px) {
+  /* Sidebar collapses to 56px icon-only */
+  .sidebar {
+    width: 56px;
+  }
+
+  /* Hide labels, badges, connections, user-info */
+  .sidebar-label,
+  .sidebar-badge,
+  .sidebar-connections,
+  .sidebar-user-info {
+    display: none;
+  }
+
+  .vtab {
+    padding: 12px;
+    text-align: center;
+  }
+
+  .g3 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  /* Sidebar becomes bottom nav */
+  .sidebar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: 54px;
+    display: flex;
+    flex-direction: row;
+    padding: 0;
+  }
+
+  .main-content {
+    padding-bottom: 54px;
+  }
+
+  /* Mobile tabs visible */
+  .mob-tabs {
+    display: flex;
+  }
+
+  /* Grid layouts go single column */
+  .g2,
+  .g3 {
+    grid-template-columns: 1fr;
+  }
+
+  /* Chat bubbles get larger max-width */
+  .chat-bubble {
+    max-width: 90%;
+  }
+
+  /* 3-panel views stack */
+  .panel-3 {
+    grid-template-columns: 1fr;
+  }
+
+  /* Vertical tabs become horizontal */
+  .vtabs {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .vtab {
+    border-left: none;
+    border-bottom: 3px solid transparent;
+    border-radius: 0;
+  }
+
+  .vtab.active {
+    border-left: none;
+    border-bottom-color: var(--accent);
+  }
+}
