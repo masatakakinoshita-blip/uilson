@@ -66,9 +66,13 @@ export default function CreatePptx({ setView }) {
           fonts.body = minorEa?.[1] || minorLat?.[1] || null;
 
           const extractColor = (tag) => {
-            const srgb = themeXml.match(new RegExp(`<a:${tag}>[\\s\\S]*?<a:srgbClr val="([^"]+)"`, "i"));
+            // First extract the element content within closing tag to avoid cross-element matching
+            const elemMatch = themeXml.match(new RegExp(`<a:${tag}>([\\s\\S]*?)</a:${tag}>`, "i"));
+            if (!elemMatch) return null;
+            const elem = elemMatch[1];
+            const srgb = elem.match(/<a:srgbClr val="([^"]+)"/);
             if (srgb) return srgb[1];
-            const sys = themeXml.match(new RegExp(`<a:${tag}>[\\s\\S]*?<a:sysClr[^>]*lastClr="([^"]+)"`, "i"));
+            const sys = elem.match(/<a:sysClr[^>]*lastClr="([^"]+)"/);
             if (sys) return sys[1];
             return null;
           };
@@ -99,18 +103,31 @@ export default function CreatePptx({ setView }) {
       const extractBgColor = (xmlStr) => {
         const bgSection = xmlStr.match(/<p:bg>([\s\S]*?)<\/p:bg>/);
         if (!bgSection) return null;
-        const solidFill = bgSection[1].match(/<a:solidFill>([\s\S]*?)<\/a:solidFill>/);
-        if (!solidFill) return null;
-        const srgb = solidFill[1].match(/<a:srgbClr val="([^"]+)"/);
-        if (srgb) return srgb[1];
-        const scheme = solidFill[1].match(/<a:schemeClr val="([^"]+)"/);
-        const schemeMap = { bg1:"lt1", bg2:"lt2", tx1:"dk1", tx2:"dk2" };
-        if (scheme) {
-          const key = schemeMap[scheme[1]] || scheme[1];
-          if (colors[key]) return colors[key];
+        const bgContent = bgSection[1];
+        // Check solidFill first
+        const solidFill = bgContent.match(/<a:solidFill>([\s\S]*?)<\/a:solidFill>/);
+        if (solidFill) {
+          const srgb = solidFill[1].match(/<a:srgbClr val="([^"]+)"/);
+          if (srgb) return srgb[1];
+          const scheme = solidFill[1].match(/<a:schemeClr val="([^"]+)"/);
+          const schemeMap = { bg1:"lt1", bg2:"lt2", tx1:"dk1", tx2:"dk2" };
+          if (scheme) {
+            const key = schemeMap[scheme[1]] || scheme[1];
+            if (colors[key]) return colors[key];
+          }
+          const sys = solidFill[1].match(/<a:sysClr[^>]*lastClr="([^"]+)"/);
+          if (sys) return sys[1];
         }
-        const sys = solidFill[1].match(/<a:sysClr[^>]*lastClr="([^"]+)"/);
-        if (sys) return sys[1];
+        // Also check bgRef with schemeClr (e.g. <p:bgRef idx="1001"><a:schemeClr val="bg1"/>)
+        const bgRef = bgContent.match(/<p:bgRef[^>]*>([\s\S]*?)<\/p:bgRef>/);
+        if (bgRef) {
+          const scheme = bgRef[1].match(/<a:schemeClr val="([^"]+)"/);
+          const schemeMap = { bg1:"lt1", bg2:"lt2", tx1:"dk1", tx2:"dk2" };
+          if (scheme) {
+            const key = schemeMap[scheme[1]] || scheme[1];
+            if (colors[key]) return colors[key];
+          }
+        }
         return null;
       };
 
