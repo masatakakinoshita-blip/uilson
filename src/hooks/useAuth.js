@@ -8,17 +8,16 @@ const SLACK_USER_SCOPES = "channels:read,channels:history,groups:read,groups:his
 const MS_CLIENT_ID = import.meta.env.VITE_MS_CLIENT_ID;
 const MS_SCOPES = "Mail.Read Calendars.ReadWrite User.Read Sites.Read.All Files.Read.All Chat.Read Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Read.All";
 
-export function googleAuthUrl() {
-  return (
-    "https://accounts.google.com/o/oauth2/v2/auth?" +
-    new URLSearchParams({
-      client_id: GOOGLE_CLIENT_ID,
-      redirect_uri: GOOGLE_REDIRECT,
-      response_type: "token",
-      scope: SCOPES,
-      prompt: "consent",
-    })
-  );
+export function googleAuthUrl(loginHint) {
+  const params = {
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: GOOGLE_REDIRECT,
+    response_type: "token",
+    scope: SCOPES,
+    prompt: "select_account consent",
+  };
+  if (loginHint) params.login_hint = loginHint;
+  return "https://accounts.google.com/o/oauth2/v2/auth?" + new URLSearchParams(params);
 }
 
 export function slackAuthUrl() {
