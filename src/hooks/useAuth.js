@@ -64,9 +64,14 @@ export default function useAuth() {
     if (!refreshToken) return false;
 
     try {
-      const resp = await fetch(
-        "/api/google-refresh?refresh_token=" + encodeURIComponent(refreshToken)
-      ).then((r) => r.json());
+      const resp = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "google-refresh",
+          refresh_token: refreshToken,
+        }),
+      }).then((r) => r.json());
 
       if (resp.ok && resp.access_token) {
         localStorage.setItem("g_token", resp.access_token);
@@ -91,12 +96,15 @@ export default function useAuth() {
 
     // Handle Google auth code
     if (code && state === "google") {
-      fetch(
-        "/api/google-oauth?code=" +
-          encodeURIComponent(code) +
-          "&redirect_uri=" +
-          encodeURIComponent(window.location.origin)
-      )
+      fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "google-oauth",
+          code,
+          redirect_uri: window.location.origin,
+        }),
+      })
         .then((r) => r.json())
         .then((data) => {
           if (data.ok && data.access_token) {
