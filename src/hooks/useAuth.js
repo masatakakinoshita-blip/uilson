@@ -12,7 +12,11 @@ const MS_CLIENT_ID = import.meta.env.VITE_MS_CLIENT_ID;
 const MS_SCOPES = "Mail.Read Calendars.ReadWrite User.Read Sites.Read.All Files.Read.All Chat.Read Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Read.All";
 
 // Fetch the runtime client ID from server on startup
-fetch("/api/google-config")
+fetch("/api/chat", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ action: "get-config" }),
+})
   .then((r) => r.json())
   .then((data) => {
     if (data.clientId) _runtimeGoogleClientId = data.clientId;

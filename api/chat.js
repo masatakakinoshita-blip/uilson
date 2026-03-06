@@ -28,8 +28,15 @@ export default async function handler(req, res) {
   if (req.method !== 'POST')
     return res.status(405).json({ error: 'Method not allowed' });
 
-  // === Google OAuth token exchange (integrated into chat endpoint) ===
+  // === Return Google client ID (for frontend runtime config) ===
   const { action } = req.body || {};
+  if (action === 'get-config') {
+    return res.status(200).json({
+      clientId: process.env.VITE_GOOGLE_CLIENT_ID || '',
+    });
+  }
+
+  // === Google OAuth token exchange (integrated into chat endpoint) ===
   if (action === 'google-oauth') {
     const { code, redirect_uri } = req.body;
     if (!code) return res.status(400).json({ error: 'code required' });
