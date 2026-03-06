@@ -95,6 +95,25 @@ export default function CreatePptx({ setView }) {
         return `data:${mime};base64,${imgBuf}`;
       };
 
+      // Helper: extract bg color from <p:bg> supporting srgbClr, schemeClr, sysClr
+      const extractBgColor = (xmlStr) => {
+        const bgSection = xmlStr.match(/<p:bg>([\s\S]*?)<\/p:bg>/);
+        if (!bgSection) return null;
+        const solidFill = bgSection[1].match(/<a:solidFill>([\s\S]*?)<\/a:solidFill>/);
+        if (!solidFill) return null;
+        const srgb = solidFill[1].match(/<a:srgbClr val="([^"]+)"/);
+        if (srgb) return srgb[1];
+        const scheme = solidFill[1].match(/<a:schemeClr val="([^"]+)"/);
+        const schemeMap = { bg1:"lt1", bg2:"lt2", tx1:"dk1", tx2:"dk2" };
+        if (scheme) {
+          const key = schemeMap[scheme[1]] || scheme[1];
+          if (colors[key]) return colors[key];
+        }
+        const sys = solidFill[1].match(/<a:sysClr[^>]*lastClr="([^"]+)"/);
+        if (sys) return sys[1];
+        return null;
+      };
+
       // Extract background images from slide masters, layouts, and actual slides
       let backgrounds = { cover: null, content: null, coverColor: null, contentColor: null };
       try {
@@ -107,8 +126,8 @@ export default function CreatePptx({ setView }) {
           const img = await resolveImage(mc, mr, "ppt/slideMasters/");
           if (img) backgrounds.content = img;
           if (!img) {
-            const solid = mc.match(/<p:bg>[\s\S]*?<a:solidFill>[\s\S]*?<a:srgbClr val="([^"]+)"/);
-            if (solid) backgrounds.contentColor = solid[1];
+            const bgc = extractBgColor(mc);
+            if (bgc) backgrounds.contentColor = bgc;
           }
         }
 
@@ -121,8 +140,8 @@ export default function CreatePptx({ setView }) {
           const img = await resolveImage(lc, lr, "ppt/slideLayouts/");
           if (img) backgrounds.cover = img;
           if (!img) {
-            const solid = lc.match(/<p:bg>[\s\S]*?<a:solidFill>[\s\S]*?<a:srgbClr val="([^"]+)"/);
-            if (solid) backgrounds.coverColor = solid[1];
+            const bgc = extractBgColor(lc);
+            if (bgc) backgrounds.coverColor = bgc;
           }
         }
 
@@ -140,10 +159,10 @@ export default function CreatePptx({ setView }) {
             else if (i === 1 && !backgrounds.content) backgrounds.content = img;
           }
           if (!img) {
-            const solid = sc.match(/<p:bg>[\s\S]*?<a:solidFill>[\s\S]*?<a:srgbClr val="([^"]+)"/);
-            if (solid) {
-              if (i === 0 && !backgrounds.cover && !backgrounds.coverColor) backgrounds.coverColor = solid[1];
-              else if (i === 1 && !backgrounds.content && !backgrounds.contentColor) backgrounds.contentColor = solid[1];
+            const bgc = extractBgColor(sc);
+            if (bgc) {
+              if (i === 0 && !backgrounds.cover && !backgrounds.coverColor) backgrounds.coverColor = bgc;
+              else if (i === 1 && !backgrounds.content && !backgrounds.contentColor) backgrounds.contentColor = bgc;
             }
           }
         }
@@ -151,8 +170,29 @@ export default function CreatePptx({ setView }) {
         console.log("bg extraction:", e.message);
       }
 
-      // Extract visual elements (shapes, images, gradients) from slide masters & layouts
+      // Extract visual elements (shapes, images, gradients) from slide masters, layouts & slides
       const EMU_W = 12192000, EMU_H = 6858000;
+
+      // Resolve any color reference (srgbClr, schemeClr, sysClr) to hex
+      const resolveColor = (xmlFragment) => {
+        const srgb = xmlFragment.match(/<a:srgbClr val="([^"]+)"/);
+        if (srgb) return srgb[1];
+        const scheme = xmlFragment.match(/<a:schemeClr val="([^"]+)"/);
+        if (scheme && colors[scheme[1]]) return colors[scheme[1]];
+        // Map scheme names to theme color keys
+        const schemeMap = { bg1:"lt1", bg2:"lt2", tx1:"dk1", tx2:"dk2" };
+        if (scheme && schemeMap[scheme[1]] && colors[schemeMap[scheme[1]]]) return colors[schemeMap[scheme[1]]];
+        const sys = xmlFragment.match(/<a:sysClr[^>]*lastClr="([^"]+)"/);
+        if (sys) return sys[1];
+        return null;
+      };
+
+      // Extract alpha from a fill section
+      const extractAlpha = (xmlFragment) => {
+        const a = xmlFragment.match(/<a:alpha val="(\d+)"/);
+        return a ? parseInt(a[1]) / 100000 : 1;
+      };
+
       const parseVisuals = async (xmlStr, relsStr, bPath) => {
         const elems = [];
         // Shapes with fills
@@ -167,25 +207,56 @@ export default function CreatePptx({ setView }) {
           const x = parseInt(off[1])/EMU_W*100, y = parseInt(off[2])/EMU_H*100;
           const w = parseInt(ex[1])/EMU_W*100, h = parseInt(ex[2])/EMU_H*100;
           if (w < 0.3 && h < 0.3) continue;
-          const fill = sp.match(/<a:solidFill>\s*<a:srgbClr val="([^"]+)"/);
-          if (fill) {
-            const alphaM = sp.match(/<a:solidFill>\s*<a:srgbClr[^>]*>[\s\S]*?<a:alpha val="(\d+)"/);
-            const opacity = alphaM ? parseInt(alphaM[1]) / 100000 : 1;
-            elems.push({ type:"rect", x, y, w, h, fill:`#${fill[1]}`, opacity });
-            continue;
+
+          // Solid fill (srgbClr, schemeClr, or sysClr)
+          const solidFill = sp.match(/<a:solidFill>([\s\S]*?)<\/a:solidFill>/);
+          if (solidFill) {
+            const color = resolveColor(solidFill[1]);
+            if (color) {
+              const opacity = extractAlpha(solidFill[1]);
+              elems.push({ type:"rect", x, y, w, h, fill:`#${color}`, opacity });
+              continue;
+            }
           }
-          // Gradient fill
+
+          // Gradient fill (supports both srgbClr and schemeClr)
           const gradSection = sp.match(/<a:gradFill>([\s\S]*?)<\/a:gradFill>/);
           if (gradSection) {
             const stops = [];
-            const gsRx = /<a:gs pos="(\d+)"[\s\S]*?<a:srgbClr val="([^"]+)"/g;
+            const gsRx = /<a:gs pos="(\d+)">([\s\S]*?)<\/a:gs>/g;
             let gs;
             while ((gs = gsRx.exec(gradSection[1])) !== null) {
-              stops.push({ pos: parseInt(gs[1])/1000, color: `#${gs[2]}` });
+              const color = resolveColor(gs[2]);
+              if (color) stops.push({ pos: parseInt(gs[1])/1000, color: `#${color}` });
             }
             if (stops.length >= 2) {
               const grad = `linear-gradient(180deg, ${stops.map(s=>`${s.color} ${s.pos}%`).join(", ")})`;
               elems.push({ type:"rect", x, y, w, h, fill: grad, opacity: 1 });
+            }
+          }
+        }
+        // Group shapes (spTree inside grpSp may contain shapes)
+        const grpRx = /<p:grpSp\b[\s\S]*?<\/p:grpSp>/g;
+        while ((m = grpRx.exec(xmlStr)) !== null) {
+          const grp = m[0];
+          // Recursively find shapes in groups
+          const innerSpRx = /<p:sp\b[\s\S]*?<\/p:sp>/g;
+          let innerM;
+          while ((innerM = innerSpRx.exec(grp)) !== null) {
+            const sp = innerM[0];
+            if (sp.includes("<p:ph")) continue;
+            const off = sp.match(/<a:off x="(\d+)" y="(\d+)"/);
+            const ex = sp.match(/<a:ext cx="(\d+)" cy="(\d+)"/);
+            if (!off || !ex) continue;
+            const x = parseInt(off[1])/EMU_W*100, y = parseInt(off[2])/EMU_H*100;
+            const w = parseInt(ex[1])/EMU_W*100, h = parseInt(ex[2])/EMU_H*100;
+            if (w < 0.3 && h < 0.3) continue;
+            const solidFill = sp.match(/<a:solidFill>([\s\S]*?)<\/a:solidFill>/);
+            if (solidFill) {
+              const color = resolveColor(solidFill[1]);
+              if (color) {
+                elems.push({ type:"rect", x, y, w, h, fill:`#${color}`, opacity: extractAlpha(solidFill[1]) });
+              }
             }
           }
         }
@@ -217,6 +288,7 @@ export default function CreatePptx({ setView }) {
 
       let coverElements = [], contentElements = [];
       try {
+        // Collect elements from master → layout → actual slides (layered)
         let masterElems = [];
         const mf = zip.file("ppt/slideMasters/slideMaster1.xml");
         const mfr = zip.file("ppt/slideMasters/_rels/slideMaster1.xml.rels");
@@ -232,7 +304,7 @@ export default function CreatePptx({ setView }) {
           const l1x = await l1f.async("string");
           const l1rels = l1r ? await l1r.async("string") : null;
           coverElements = [...masterElems, ...await parseVisuals(l1x, l1rels, "ppt/slideLayouts/")];
-        } else coverElements = masterElems;
+        } else coverElements = [...masterElems];
         // Layout 2 = content
         const l2f = zip.file("ppt/slideLayouts/slideLayout2.xml");
         const l2r = zip.file("ppt/slideLayouts/_rels/slideLayout2.xml.rels");
@@ -240,7 +312,22 @@ export default function CreatePptx({ setView }) {
           const l2x = await l2f.async("string");
           const l2rels = l2r ? await l2r.async("string") : null;
           contentElements = [...masterElems, ...await parseVisuals(l2x, l2rels, "ppt/slideLayouts/")];
-        } else contentElements = masterElems;
+        } else contentElements = [...masterElems];
+
+        // Also extract elements from actual slides (many templates put decorations here)
+        for (let i = 0; i < Math.min(slideFiles.length, 2); i++) {
+          const sf = zip.file(slideFiles[i]);
+          const srPath = slideFiles[i].replace("slides/", "slides/_rels/").replace(".xml", ".xml.rels");
+          const sr = zip.file(srPath);
+          if (!sf) continue;
+          const sc = await sf.async("string");
+          const srels = sr ? await sr.async("string") : null;
+          const slideElems = await parseVisuals(sc, srels, "ppt/slides/");
+          if (slideElems.length > 0) {
+            if (i === 0) coverElements = [...coverElements, ...slideElems];
+            else contentElements = [...contentElements, ...slideElems];
+          }
+        }
       } catch (e) {
         console.log("shape extraction:", e.message);
       }
