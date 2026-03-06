@@ -11,47 +11,10 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
 
   try {
-    const { messages, mode } = req.body;
+    const { messages } = req.body;
 
-    const outlinePrompt = `あなたはプレゼンテーション資料の構成を設計するAIアシスタントです。
-ユーザーの要望に基づいて、スライドの「構成案（アウトライン）」のみをJSON形式で生成してください。
-この段階では本文（body）は空にし、各スライドのタイトルとレイアウトだけを決めてください。
-
-必ず以下のJSON形式で応答してください。JSONのみを返し、他のテキストは含めないでください。
-
-{
-  "slides": [
-    {
-      "id": 1,
-      "title": "スライドタイトル",
-      "layout": "cover|content|chart|bullets|comparison|closing",
-      "layoutLabel": "レイアウト種別（例：表紙, 箇条書き, グラフ, 比較表, まとめ）",
-      "heading": "スライドの見出し",
-      "sub": "",
-      "body": "",
-      "note": "",
-      "bg": "背景色（CSS色コード。coverは#1E2D50等の暗い色、contentは#FFFFFF等）",
-      "light": true/false（背景が暗い場合はtrue）,
-      "dataSrc": ["データソース名の配列（例：売上DB、顧客リスト）空配列可"]
-    }
-  ],
-  "summary": "プレゼン全体の概要（1文）"
-}
-
-ルール:
-- スライド数はユーザー指定があればそれに従う。なければ6〜10枚程度
-- 最初のスライドはlayout:"cover"にする
-- 最後のスライドはlayout:"closing"にする
-- coverとclosingのbgは暗い色（#1E2D50, #2B4070等）でlight:true
-- contentスライドのbgは明るい色（#FFFFFF, #F5F6FA等）でlight:false
-- chartスライドのbgも明るい色
-- 日本語で作成する
-- subとbodyは空文字にする（構成案なので）
-- headingには各スライドで扱うテーマを簡潔に書く`;
-
-    const fullPrompt = `あなたはプレゼンテーション資料の構成を設計するAIアシスタントです。
+    const systemPrompt = `あなたはプレゼンテーション資料の構成を設計するAIアシスタントです。
 ユーザーの要望に基づいて、スライド構成をJSON形式で生成してください。
-既にアウトライン（構成案）が決まっているので、それに基づいて各スライドの本文を充実させてください。
 
 必ず以下のJSON形式で応答してください。JSONのみを返し、他のテキストは含めないでください。
 
@@ -75,14 +38,15 @@ export default async function handler(req, res) {
 }
 
 ルール:
-- アウトラインの構成（スライド数・タイトル・レイアウト）はそのまま維持する
-- 各スライドのsub、body、noteに具体的で実用的な内容を追加する
+- スライド数はユーザー指定があればそれに従う。なければ6〜10枚程度
+- 最初のスライドはlayout:"cover"にする
+- 最後のスライドはlayout:"closing"にする
 - coverとclosingのbgは暗い色（#1E2D50, #2B4070等）でlight:true
 - contentスライドのbgは明るい色（#FFFFFF, #F5F6FA等）でlight:false
+- chartスライドのbgも明るい色
 - 日本語で作成する
-- 具体的で実用的な内容にする`;
-
-    const systemPrompt = mode === 'full' ? fullPrompt : outlinePrompt;
+- 具体的で実用的な内容にする
+- 各スライドのsub、body、noteに充実した内容を入れる`;
 
     const claudeMessages = messages.map(m => ({
       role: m.role === 'user' ? 'user' : 'assistant',
@@ -112,7 +76,6 @@ export default async function handler(req, res) {
 
     const text = data.content?.[0]?.text || '';
 
-    // Extract JSON from response (handle markdown code blocks)
     let jsonStr = text;
     const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (jsonMatch) {
@@ -123,7 +86,6 @@ export default async function handler(req, res) {
       const parsed = JSON.parse(jsonStr);
       return res.status(200).json(parsed);
     } catch (parseErr) {
-      // If JSON parsing fails, return the raw text for the chat
       return res.status(200).json({
         slides: [],
         summary: '',

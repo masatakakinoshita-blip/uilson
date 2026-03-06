@@ -16,8 +16,7 @@ export default function CreatePptx({ setView }) {
   const [chatInput, setChatInput] = useState("");
   const [generating, setGenerating] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  // phase: "idle" → "outline" (構成案表示中) → "full" (本文生成済み)
-  const [phase, setPhase] = useState("idle");
+  const [generated, setGenerated] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
   const chatEndRef = useRef(null);
 
@@ -25,7 +24,6 @@ export default function CreatePptx({ setView }) {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages]);
 
-  // Step 1: Generate outline only
   const sendChat = async () => {
     const text = chatInput.trim();
     if (!text || generating) return;
@@ -40,7 +38,7 @@ export default function CreatePptx({ setView }) {
       const res = await fetch("/api/generate-slides", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: newMessages, mode: "outline" })
+        body: JSON.stringify({ messages: newMessages, mode: "full" })
       });
       const data = await res.json();
 
@@ -49,12 +47,11 @@ export default function CreatePptx({ setView }) {
       } else if (data.slides && data.slides.length > 0) {
         setSlides(data.slides);
         setCurSlide(0);
-        setPhase("outline");
-        const summary = data.summary || `${data.slides.length}枚の構成案を生成しました。`;
-        const slideList = data.slides.map(s => `${s.id}. ${s.heading || s.title}（${s.layoutLabel || s.layout}）`).join("\n");
+        setGenerated(true);
+        const summary = data.summary || `${data.slides.length}枚のスライドを生成しました。`;
         setChatMessages(prev => [...prev, {
           role: "assistant",
-          content: `${summary}\n\n構成案:\n${slideList}\n\n構成を確認して、よければ中央パネルの「スライド生成」ボタンを押してください。\n修正があればチャットで指示してください。`
+          content: `${summary}\n\n中央の構成パネルで各スライドの内容を確認してください。\n修正があればチャットで指示してください。\nOKならPPTXダウンロードできます。`
         }]);
       } else if (data.rawText) {
         setChatMessages(prev => [...prev, { role: "assistant", content: data.rawText }]);
@@ -65,70 +62,27 @@ export default function CreatePptx({ setView }) {
     setGenerating(false);
   };
 
-  // Step 2: Generate full content based on confirmed outline
-  const generateFull = async () => {
-    if (generating || phase !== "outline") return;
-    setGenerating(true);
-
-    // Build messages that include the outline for context
-    const outlineDesc = slides.map(s => `${s.id}. ${s.heading || s.title}（${s.layoutLabel || s.layout}）`).join("\n");
-    const fullMessages = [
-      ...chatMessages,
-      {
-        role: "user",
-        content: `以下の構成案が確定しました。この構成に基づいて各スライドの本文（sub、body、note）を充実させてください。\n\n確定構成:\n${outlineDesc}`
-      }
-    ];
-
-    try {
-      const res = await fetch("/api/generate-slides", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: fullMessages, mode: "full" })
-      });
-      const data = await res.json();
-
-      if (data.error) {
-        setChatMessages(prev => [...prev, { role: "assistant", content: "エラー: " + data.error }]);
-      } else if (data.slides && data.slides.length > 0) {
-        setSlides(data.slides);
-        setCurSlide(0);
-        setPhase("full");
-        setChatMessages(prev => [...prev, {
-          role: "assistant",
-          content: `スライドの本文を生成しました（${data.slides.length}枚）。右側のプレビューで確認してください。\n修正があればお伝えください。PPTXダウンロードも可能です。`
-        }]);
-      } else if (data.rawText) {
-        setChatMessages(prev => [...prev, { role: "assistant", content: data.rawText }]);
-      }
-    } catch (err) {
-      setChatMessages(prev => [...prev, { role: "assistant", content: "生成エラー: " + err.message }]);
-    }
-    setGenerating(false);
-  };
-
   const regenerate = async () => {
     if (generating || chatMessages.length === 0) return;
-    const regenMessages = [...chatMessages, { role: "user", content: "スライド構成を再生成してください。別のアプローチや表現で作り直してください。" }];
+    const regenMessages = [...chatMessages, { role: "user", content: "スライドを再生成してください。別のアプローチや表現で作り直してください。" }];
     setChatMessages(regenMessages);
     setGenerating(true);
-    setPhase("idle");
 
     try {
       const res = await fetch("/api/generate-slides", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: regenMessages, mode: "outline" })
+        body: JSON.stringify({ messages: regenMessages, mode: "full" })
       });
       const data = await res.json();
 
       if (data.slides && data.slides.length > 0) {
         setSlides(data.slides);
         setCurSlide(0);
-        setPhase("outline");
+        setGenerated(true);
         setChatMessages(prev => [...prev, {
           role: "assistant",
-          content: `構成案を再生成しました（${data.slides.length}枚）。確認して「スライド生成」を押してください。`
+          content: `再生成しました（${data.slides.length}枚）。構成パネルで内容を確認してください。`
         }]);
       }
     } catch (err) {
@@ -138,11 +92,10 @@ export default function CreatePptx({ setView }) {
   };
 
   const downloadPptx = async () => {
-    if (downloading || slides.length < 2 || phase !== "full") return;
+    if (downloading || !generated || slides.length < 2) return;
     setDownloading(true);
 
     try {
-      // Dynamically load PptxGenJS from CDN
       if (!window.PptxGenJS) {
         await new Promise((resolve, reject) => {
           const script = document.createElement("script");
@@ -185,7 +138,6 @@ export default function CreatePptx({ setView }) {
             });
           }
         } else {
-          // Content slides: heading + body
           pptSlide.addText(s.heading || s.title, {
             x: 0.5, y: 0.3, w: 12.33, h: 1.0,
             fontSize: 28, fontFace: "Yu Gothic",
@@ -248,31 +200,28 @@ export default function CreatePptx({ setView }) {
           <h1 style={{ fontSize: "18px", fontWeight: 700, color: V.t1, margin: 0 }}>
             📊 プレゼン資料を作る
           </h1>
-          {/* Phase indicator */}
           <span style={{
             fontSize: "11px", padding: "4px 10px", borderRadius: "12px",
-            background: phase === "idle" ? V.main : phase === "outline" ? `${V.orange}20` : `${V.green}20`,
-            color: phase === "idle" ? V.t4 : phase === "outline" ? V.orange : V.green,
+            background: !generated ? V.main : `${V.green}20`,
+            color: !generated ? V.t4 : V.green,
             fontWeight: 600
           }}>
-            {phase === "idle" ? "入力待ち" : phase === "outline" ? "構成確認中" : "生成完了"}
+            {!generated ? "入力待ち" : "内容確認中"}
           </span>
         </div>
         <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
           <button
             onClick={downloadPptx}
-            disabled={downloading || phase !== "full"}
+            disabled={downloading || !generated}
             style={{
               padding: "8px 16px", borderRadius: 6,
-              border: `1px solid ${V.border}`,
-              background: downloading ? V.main : V.white,
-              cursor: (downloading || phase !== "full") ? "not-allowed" : "pointer",
-              fontSize: 13, color: V.t2, fontWeight: 500,
-              opacity: phase !== "full" ? 0.5 : 1,
+              border: `1px solid ${generated ? V.green : V.border}`,
+              background: downloading ? V.main : generated ? `${V.green}10` : V.white,
+              cursor: (!generated || downloading) ? "not-allowed" : "pointer",
+              fontSize: 13, color: generated ? V.green : V.t2, fontWeight: 600,
+              opacity: !generated ? 0.5 : 1,
               transition: "all 0.2s"
             }}
-            onMouseEnter={e => { if (!downloading && phase === "full") e.currentTarget.style.backgroundColor = V.main; }}
-            onMouseLeave={e => { if (!downloading && phase === "full") e.currentTarget.style.backgroundColor = V.white; }}
           >
             {downloading ? "⏳ 生成中..." : "📥 PPTXダウンロード"}
           </button>
@@ -288,8 +237,6 @@ export default function CreatePptx({ setView }) {
               opacity: chatMessages.length === 0 ? 0.5 : 1,
               transition: "all 0.2s"
             }}
-            onMouseEnter={e => { if (!generating) e.currentTarget.style.backgroundColor = V.main; }}
-            onMouseLeave={e => { if (!generating) e.currentTarget.style.backgroundColor = V.white; }}
           >
             🔄 再生成
           </button>
@@ -315,7 +262,6 @@ export default function CreatePptx({ setView }) {
             💬 チャット
           </div>
 
-          {/* Chat Messages */}
           <div style={{
             flex: 1, overflowY: "auto", padding: "12px",
             display: "flex", flexDirection: "column", gap: "8px"
@@ -329,7 +275,7 @@ export default function CreatePptx({ setView }) {
                 例: 「営業チーム向けの月次報告を8枚で作って」<br/>
                 例: 「新製品発表のプレゼンを作って」<br/><br/>
                 <span style={{ color: V.accent, fontWeight: 600 }}>
-                  まず構成案を生成 → 確認後に本文生成
+                  生成後、構成パネルで本文を確認できます
                 </span>
               </div>
             )}
@@ -353,13 +299,12 @@ export default function CreatePptx({ setView }) {
                 background: V.main, color: V.t3,
                 fontSize: "12px", fontStyle: "italic"
               }}>
-                🤖 {phase === "outline" || phase === "idle" ? "構成案を生成中..." : "スライド本文を生成中..."}
+                🤖 スライドを生成中...
               </div>
             )}
             <div ref={chatEndRef} />
           </div>
 
-          {/* Input */}
           <div style={{
             padding: "12px", borderTop: `1px solid ${V.border}`,
             display: "flex", gap: "8px"
@@ -412,7 +357,7 @@ export default function CreatePptx({ setView }) {
             fontSize: "12px", fontWeight: 600, color: V.t3,
             display: "flex", justifyContent: "space-between", alignItems: "center"
           }}>
-            <span>📑 構成</span>
+            <span>📑 構成・本文確認</span>
             <span style={{ fontSize: "11px", color: V.t4 }}>
               {slides.length}枚
             </span>
@@ -448,17 +393,7 @@ export default function CreatePptx({ setView }) {
                 }}>
                   {s.layoutLabel || s.layout}
                 </div>
-                {phase === "outline" && (
-                  <div style={{
-                    fontSize: "10px",
-                    color: curSlide === i ? "rgba(255,255,255,0.5)" : V.orange,
-                    marginTop: "2px", fontStyle: "italic"
-                  }}>
-                    構成のみ（本文未生成）
-                  </div>
-                )}
-                {/* 本文生成後: sub / body テキストを表示 */}
-                {phase === "full" && s.sub && (
+                {s.sub && (
                   <div style={{
                     fontSize: "11px",
                     color: curSlide === i ? "rgba(255,255,255,0.8)" : V.t3,
@@ -467,7 +402,7 @@ export default function CreatePptx({ setView }) {
                     {s.sub}
                   </div>
                 )}
-                {phase === "full" && s.body && (
+                {s.body && (
                   <div style={{
                     fontSize: "11px", lineHeight: 1.5,
                     color: curSlide === i ? "rgba(255,255,255,0.7)" : V.t2,
@@ -478,7 +413,7 @@ export default function CreatePptx({ setView }) {
                     {s.body}
                   </div>
                 )}
-                {phase === "full" && s.note && (
+                {s.note && (
                   <div style={{
                     fontSize: "10px",
                     color: curSlide === i ? "rgba(255,255,255,0.5)" : V.t4,
@@ -499,34 +434,6 @@ export default function CreatePptx({ setView }) {
               </div>
             ))}
           </div>
-
-          {/* Generate Full Content Button */}
-          {phase === "outline" && (
-            <div style={{
-              padding: "16px", borderTop: `1px solid ${V.border}`,
-              background: `${V.green}08`
-            }}>
-              <button
-                onClick={generateFull}
-                disabled={generating}
-                style={{
-                  width: "100%", padding: "12px 16px", borderRadius: "8px",
-                  border: "none",
-                  background: generating ? V.t4 : V.green,
-                  color: V.white, cursor: generating ? "wait" : "pointer",
-                  fontSize: "14px", fontWeight: 700, transition: "all 0.2s",
-                  boxShadow: generating ? "none" : "0 2px 8px rgba(46,125,50,0.3)"
-                }}
-              >
-                {generating ? "⏳ 本文を生成中..." : "✅ この構成でスライド生成"}
-              </button>
-              <div style={{
-                fontSize: "11px", color: V.t3, textAlign: "center", marginTop: "8px"
-              }}>
-                構成を修正したい場合はチャットで指示してください
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Right Panel: Preview (35%) */}
@@ -578,7 +485,6 @@ export default function CreatePptx({ setView }) {
             flex: 1, overflow: "auto", padding: "20px",
             display: "flex", alignItems: "center", justifyContent: "center"
           }}>
-            {/* Slide Preview Box */}
             <div
               style={{
                 width: "100%", maxWidth: "480px",
@@ -636,24 +542,14 @@ export default function CreatePptx({ setView }) {
                       {slide.sub}
                     </div>
                   )}
-                  {phase === "outline" && !slide.body ? (
-                    <div style={{
-                      fontSize: "12px", color: slide.light ? "rgba(255,255,255,0.5)" : V.t4,
-                      fontStyle: "italic", flex: 1, display: "flex",
-                      alignItems: "center", justifyContent: "center", width: "100%"
-                    }}>
-                      構成確認後に本文が生成されます
-                    </div>
-                  ) : (
-                    <div style={{
-                      fontSize: "11px", lineHeight: 1.6,
-                      whiteSpace: "pre-wrap",
-                      opacity: slide.light ? 0.9 : 1,
-                      overflow: "auto", flex: 1, width: "100%"
-                    }}>
-                      {slide.body}
-                    </div>
-                  )}
+                  <div style={{
+                    fontSize: "11px", lineHeight: 1.6,
+                    whiteSpace: "pre-wrap",
+                    opacity: slide.light ? 0.9 : 1,
+                    overflow: "auto", flex: 1, width: "100%"
+                  }}>
+                    {slide.body}
+                  </div>
                 </>
               )}
             </div>
