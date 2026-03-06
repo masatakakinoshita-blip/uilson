@@ -332,16 +332,27 @@ export default function CreatePptx({ setView }) {
         console.log("shape extraction:", e.message);
       }
 
-      setTemplateInfo({
+      const info = {
         slideCount: slideFiles.length,
         fonts,
         colors,
         backgrounds,
         coverElements,
         contentElements,
-      });
+      };
+      console.log("Template parsed:", JSON.stringify({
+        slideCount: info.slideCount,
+        colorKeys: Object.keys(info.colors),
+        coverBg: info.backgrounds.coverColor,
+        contentBg: info.backgrounds.contentColor,
+        coverElCount: info.coverElements.length,
+        contentElCount: info.contentElements.length,
+        coverEls: info.coverElements.map(e => ({type:e.type, fill:e.fill?.substring(0,20), x:e.x?.toFixed(1), y:e.y?.toFixed(1), w:e.w?.toFixed(1), h:e.h?.toFixed(1)})),
+        contentEls: info.contentElements.map(e => ({type:e.type, fill:e.fill?.substring(0,20), x:e.x?.toFixed(1), y:e.y?.toFixed(1), w:e.w?.toFixed(1), h:e.h?.toFixed(1)})),
+      }));
+      setTemplateInfo(info);
     } catch (e) {
-      console.log("Template parse optional:", e.message);
+      console.error("Template parse error:", e.message, e.stack);
     }
   };
 
@@ -1125,6 +1136,7 @@ export default function CreatePptx({ setView }) {
                   {templateFile && templateInfo && (() => {
                     const isCov = slide.layout === "cover" || slide.layout === "closing";
                     const elms = isCov ? (templateInfo.coverElements || []) : (templateInfo.contentElements || []);
+                    if (!window._tplDbg) { window._tplDbg = true; console.log("Preview render:", {templateFile: !!templateFile, templateInfo: !!templateInfo, isCov, layout: slide.layout, elmCount: elms.length, elms}); }
                     return elms.map((el, idx) => {
                       if (el.type === "rect") return (
                         <div key={`te${idx}`} style={{
