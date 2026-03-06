@@ -11,12 +11,12 @@ const V = {
 export default function CreatePptx({ setView }) {
   const [slides, setSlides] = useState(DEFAULT_SLIDES);
   const [curSlide, setCurSlide] = useState(0);
-  const [curModel, setCurModel] = useState("claude");
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState("");
   const [generating, setGenerating] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [generated, setGenerated] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
   const chatEndRef = useRef(null);
 
@@ -48,10 +48,11 @@ export default function CreatePptx({ setView }) {
         setSlides(data.slides);
         setCurSlide(0);
         setGenerated(true);
+        setShowPreview(false);
         const summary = data.summary || `${data.slides.length}枚のスライドを生成しました。`;
         setChatMessages(prev => [...prev, {
           role: "assistant",
-          content: `${summary}\n\n中央の構成パネルで各スライドの内容を確認してください。\n修正があればチャットで指示してください。\nOKならPPTXダウンロードできます。`
+          content: `${summary}\n\n右の構成パネルで各スライドの本文を確認してください。\n修正はチャットで指示できます。\n内容OKなら「PPTXを作成」で完成です。`
         }]);
       } else if (data.rawText) {
         setChatMessages(prev => [...prev, { role: "assistant", content: data.rawText }]);
@@ -80,6 +81,7 @@ export default function CreatePptx({ setView }) {
         setSlides(data.slides);
         setCurSlide(0);
         setGenerated(true);
+        setShowPreview(false);
         setChatMessages(prev => [...prev, {
           role: "assistant",
           content: `再生成しました（${data.slides.length}枚）。構成パネルで内容を確認してください。`
@@ -89,6 +91,10 @@ export default function CreatePptx({ setView }) {
       setChatMessages(prev => [...prev, { role: "assistant", content: "再生成エラー: " + err.message }]);
     }
     setGenerating(false);
+  };
+
+  const buildPptx = () => {
+    setShowPreview(true);
   };
 
   const downloadPptx = async () => {
@@ -200,31 +206,54 @@ export default function CreatePptx({ setView }) {
           <h1 style={{ fontSize: "18px", fontWeight: 700, color: V.t1, margin: 0 }}>
             📊 プレゼン資料を作る
           </h1>
-          <span style={{
-            fontSize: "11px", padding: "4px 10px", borderRadius: "12px",
-            background: !generated ? V.main : `${V.green}20`,
-            color: !generated ? V.t4 : V.green,
-            fontWeight: 600
-          }}>
-            {!generated ? "入力待ち" : "内容確認中"}
-          </span>
         </div>
         <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-          <button
-            onClick={downloadPptx}
-            disabled={downloading || !generated}
-            style={{
-              padding: "8px 16px", borderRadius: 6,
-              border: `1px solid ${generated ? V.green : V.border}`,
-              background: downloading ? V.main : generated ? `${V.green}10` : V.white,
-              cursor: (!generated || downloading) ? "not-allowed" : "pointer",
-              fontSize: 13, color: generated ? V.green : V.t2, fontWeight: 600,
-              opacity: !generated ? 0.5 : 1,
-              transition: "all 0.2s"
-            }}
-          >
-            {downloading ? "⏳ 生成中..." : "📥 PPTXダウンロード"}
-          </button>
+          {!showPreview ? (
+            <button
+              onClick={buildPptx}
+              disabled={!generated}
+              style={{
+                padding: "8px 20px", borderRadius: 6,
+                border: "none",
+                background: !generated ? V.t4 : V.green,
+                color: V.white,
+                cursor: !generated ? "not-allowed" : "pointer",
+                fontSize: 14, fontWeight: 700,
+                opacity: !generated ? 0.5 : 1,
+                transition: "all 0.2s",
+                boxShadow: generated ? "0 2px 8px rgba(46,125,50,0.3)" : "none"
+              }}
+            >
+              PPTXを作成 →
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={() => setShowPreview(false)}
+                style={{
+                  padding: "8px 14px", borderRadius: 6,
+                  border: `1px solid ${V.border}`, background: V.white,
+                  cursor: "pointer", fontSize: 13, color: V.t2, fontWeight: 500
+                }}
+              >
+                ← テキスト編集に戻る
+              </button>
+              <button
+                onClick={downloadPptx}
+                disabled={downloading}
+                style={{
+                  padding: "8px 20px", borderRadius: 6,
+                  border: `1px solid ${V.green}`,
+                  background: downloading ? V.main : `${V.green}10`,
+                  cursor: downloading ? "wait" : "pointer",
+                  fontSize: 14, color: V.green, fontWeight: 700,
+                  transition: "all 0.2s"
+                }}
+              >
+                {downloading ? "⏳ 生成中..." : "📥 ダウンロード"}
+              </button>
+            </>
+          )}
           <button
             onClick={regenerate}
             disabled={generating || chatMessages.length === 0}
@@ -243,334 +272,317 @@ export default function CreatePptx({ setView }) {
         </div>
       </div>
 
-      {/* Main Content - 3 Panels */}
-      <div className="panel-3" style={{
-        display: "flex", flex: 1, overflow: "hidden", gap: 0
-      }}>
-        {/* Left Panel: Chat (30%) */}
-        <div style={{
-          flex: "0 0 30%",
-          borderRight: `1px solid ${V.border}`,
-          display: "flex", flexDirection: "column",
-          background: V.card, overflow: "hidden"
-        }}>
-          <div style={{
-            padding: "12px 16px",
-            borderBottom: `1px solid ${V.border}`,
-            fontSize: "12px", fontWeight: 600, color: V.t3
-          }}>
-            💬 チャット
-          </div>
+      {/* Main Content */}
+      <div style={{ display: "flex", flex: 1, overflow: "hidden", gap: 0 }}>
 
+        {/* Left Panel: Chat */}
+        {!showPreview && (
           <div style={{
-            flex: 1, overflowY: "auto", padding: "12px",
-            display: "flex", flexDirection: "column", gap: "8px"
+            flex: "0 0 40%",
+            borderRight: `1px solid ${V.border}`,
+            display: "flex", flexDirection: "column",
+            background: V.card, overflow: "hidden"
           }}>
-            {chatMessages.length === 0 && (
-              <div style={{
-                padding: "20px", textAlign: "center", color: V.t4, fontSize: "12px",
-                lineHeight: 1.6
-              }}>
-                プレゼン資料の内容を入力してください。<br/>
-                例: 「営業チーム向けの月次報告を8枚で作って」<br/>
-                例: 「新製品発表のプレゼンを作って」<br/><br/>
-                <span style={{ color: V.accent, fontWeight: 600 }}>
-                  生成後、構成パネルで本文を確認できます
-                </span>
-              </div>
-            )}
-            {chatMessages.map((msg, i) => (
-              <div
-                key={i}
-                style={{
-                  padding: "10px", borderRadius: "8px",
-                  background: msg.role === "user" ? V.accent : V.main,
-                  color: msg.role === "user" ? V.white : V.t2,
-                  fontSize: "12px", lineHeight: 1.5,
-                  whiteSpace: "pre-wrap", wordBreak: "break-word"
-                }}
-              >
-                {msg.content}
-              </div>
-            ))}
-            {generating && (
-              <div style={{
-                padding: "10px", borderRadius: "8px",
-                background: V.main, color: V.t3,
-                fontSize: "12px", fontStyle: "italic"
-              }}>
-                🤖 スライドを生成中...
-              </div>
-            )}
-            <div ref={chatEndRef} />
-          </div>
+            <div style={{
+              padding: "12px 16px",
+              borderBottom: `1px solid ${V.border}`,
+              fontSize: "12px", fontWeight: 600, color: V.t3
+            }}>
+              💬 チャット
+            </div>
 
-          <div style={{
-            padding: "12px", borderTop: `1px solid ${V.border}`,
-            display: "flex", gap: "8px"
-          }}>
-            <input
-              type="text"
-              value={chatInput}
-              onChange={e => setChatInput(e.target.value)}
-              onCompositionStart={() => setIsComposing(true)}
-              onCompositionEnd={() => setIsComposing(false)}
-              onKeyDown={e => {
-                if (e.key === "Enter" && !e.shiftKey && !isComposing && !e.nativeEvent.isComposing) {
-                  e.preventDefault();
-                  sendChat();
-                }
-              }}
-              placeholder="プレゼンの内容を入力..."
-              disabled={generating}
-              style={{
-                flex: 1, padding: "8px 12px", borderRadius: "6px",
-                border: `1px solid ${V.border}`, fontSize: "12px",
-                backgroundColor: V.white
-              }}
-            />
-            <button
-              onClick={sendChat}
-              disabled={generating || !chatInput.trim()}
-              style={{
-                padding: "8px 12px", borderRadius: "6px",
-                border: "none", background: generating ? V.t4 : V.accent,
-                color: V.white, cursor: generating ? "wait" : "pointer",
-                fontSize: "12px", fontWeight: 600, transition: "all 0.2s"
-              }}
-            >
-              送信 →
-            </button>
-          </div>
-        </div>
-
-        {/* Center Panel: Composition (35%) */}
-        <div style={{
-          flex: "0 0 35%",
-          borderRight: `1px solid ${V.border}`,
-          display: "flex", flexDirection: "column",
-          background: V.white, overflow: "hidden"
-        }}>
-          <div style={{
-            padding: "12px 16px",
-            borderBottom: `1px solid ${V.border}`,
-            fontSize: "12px", fontWeight: 600, color: V.t3,
-            display: "flex", justifyContent: "space-between", alignItems: "center"
-          }}>
-            <span>📑 構成・本文確認</span>
-            <span style={{ fontSize: "11px", color: V.t4 }}>
-              {slides.length}枚
-            </span>
-          </div>
-
-          <div style={{ flex: 1, overflowY: "auto", padding: "12px" }}>
-            {slides.map((s, i) => (
-              <div
-                key={s.id}
-                onClick={() => setCurSlide(i)}
-                style={{
-                  padding: "12px", borderRadius: "6px",
-                  background: curSlide === i ? V.accent : V.main,
-                  color: curSlide === i ? V.white : V.t2,
-                  cursor: "pointer", marginBottom: "8px",
-                  fontSize: "12px",
-                  fontWeight: curSlide === i ? 600 : 500,
-                  border: `1px solid ${curSlide === i ? V.accent : V.border}`,
-                  transition: "all 0.2s"
-                }}
-                onMouseEnter={e => {
-                  if (curSlide !== i) e.currentTarget.style.backgroundColor = `${V.accent}10`;
-                }}
-                onMouseLeave={e => {
-                  if (curSlide !== i) e.currentTarget.style.backgroundColor = V.main;
-                }}
-              >
-                <div style={{ fontWeight: 700 }}>{s.id}. {s.heading || s.title}</div>
+            <div style={{
+              flex: 1, overflowY: "auto", padding: "12px",
+              display: "flex", flexDirection: "column", gap: "8px"
+            }}>
+              {chatMessages.length === 0 && (
                 <div style={{
-                  fontSize: "11px",
-                  color: curSlide === i ? "rgba(255,255,255,0.7)" : V.t4,
-                  marginTop: "4px"
+                  padding: "20px", textAlign: "center", color: V.t4, fontSize: "12px",
+                  lineHeight: 1.6
                 }}>
-                  {s.layoutLabel || s.layout}
+                  プレゼン資料の内容を入力してください。<br/>
+                  例: 「営業チーム向けの月次報告を8枚で作って」<br/>
+                  例: 「新製品発表のプレゼンを作って」<br/><br/>
+                  <span style={{ color: V.accent, fontWeight: 600 }}>
+                    構成パネルでテキストを確認 → OKなら「PPTXを作成」
+                  </span>
                 </div>
-                {s.sub && (
-                  <div style={{
-                    fontSize: "11px",
-                    color: curSlide === i ? "rgba(255,255,255,0.8)" : V.t3,
-                    marginTop: "6px", fontWeight: 500
-                  }}>
-                    {s.sub}
-                  </div>
-                )}
-                {s.body && (
-                  <div style={{
-                    fontSize: "11px", lineHeight: 1.5,
-                    color: curSlide === i ? "rgba(255,255,255,0.7)" : V.t2,
-                    marginTop: "4px", whiteSpace: "pre-wrap",
-                    borderTop: `1px solid ${curSlide === i ? "rgba(255,255,255,0.2)" : V.border}`,
-                    paddingTop: "6px"
-                  }}>
-                    {s.body}
-                  </div>
-                )}
-                {s.note && (
-                  <div style={{
-                    fontSize: "10px",
-                    color: curSlide === i ? "rgba(255,255,255,0.5)" : V.t4,
-                    marginTop: "4px", fontStyle: "italic"
-                  }}>
-                    💡 {s.note}
-                  </div>
-                )}
-                {s.dataSrc && s.dataSrc.length > 0 && (
-                  <div style={{
-                    fontSize: "10px",
-                    color: curSlide === i ? "rgba(255,255,255,0.5)" : V.t4,
-                    marginTop: "2px"
-                  }}>
-                    📊 {s.dataSrc.join(", ")}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
+              )}
+              {chatMessages.map((msg, i) => (
+                <div
+                  key={i}
+                  style={{
+                    padding: "10px", borderRadius: "8px",
+                    background: msg.role === "user" ? V.accent : V.main,
+                    color: msg.role === "user" ? V.white : V.t2,
+                    fontSize: "12px", lineHeight: 1.5,
+                    whiteSpace: "pre-wrap", wordBreak: "break-word"
+                  }}
+                >
+                  {msg.content}
+                </div>
+              ))}
+              {generating && (
+                <div style={{
+                  padding: "10px", borderRadius: "8px",
+                  background: V.main, color: V.t3,
+                  fontSize: "12px", fontStyle: "italic"
+                }}>
+                  🤖 スライドを生成中...
+                </div>
+              )}
+              <div ref={chatEndRef} />
+            </div>
 
-        {/* Right Panel: Preview (35%) */}
-        <div style={{
-          flex: "0 0 35%",
-          display: "flex", flexDirection: "column",
-          background: V.main, overflow: "hidden"
-        }}>
-          <div style={{
-            padding: "12px 16px",
-            borderBottom: `1px solid ${V.border}`,
-            fontSize: "12px", fontWeight: 600, color: V.t3,
-            background: V.white,
-            display: "flex", justifyContent: "space-between", alignItems: "center"
-          }}>
-            <span>👁️ プレビュー</span>
-            <span style={{ fontSize: "11px", color: V.t4 }}>
-              {curSlide + 1} / {slides.length}
-            </span>
-          </div>
-
-          {/* Model Selector */}
-          <div style={{
-            display: "flex", gap: "4px",
-            padding: "8px 12px",
-            borderBottom: `1px solid ${V.border}`,
-            background: V.white, overflowX: "auto"
-          }}>
-            {Object.entries(MODEL_COLORS).map(([key, color]) => (
-              <button
-                key={key}
-                onClick={() => setCurModel(key)}
+            <div style={{
+              padding: "12px", borderTop: `1px solid ${V.border}`,
+              display: "flex", gap: "8px"
+            }}>
+              <input
+                type="text"
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                onCompositionStart={() => setIsComposing(true)}
+                onCompositionEnd={() => setIsComposing(false)}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && !e.shiftKey && !isComposing && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    sendChat();
+                  }
+                }}
+                placeholder="プレゼンの内容を入力..."
+                disabled={generating}
                 style={{
-                  padding: "6px 10px", borderRadius: "4px",
-                  border: curModel === key ? `2px solid ${color}` : `1px solid ${V.border}`,
-                  background: curModel === key ? `${color}15` : V.white,
-                  color: curModel === key ? color : V.t2,
-                  fontSize: "11px", cursor: "pointer",
-                  fontWeight: curModel === key ? 600 : 500,
-                  transition: "all 0.2s", whiteSpace: "nowrap"
+                  flex: 1, padding: "8px 12px", borderRadius: "6px",
+                  border: `1px solid ${V.border}`, fontSize: "12px",
+                  backgroundColor: V.white
+                }}
+              />
+              <button
+                onClick={sendChat}
+                disabled={generating || !chatInput.trim()}
+                style={{
+                  padding: "8px 12px", borderRadius: "6px",
+                  border: "none", background: generating ? V.t4 : V.accent,
+                  color: V.white, cursor: generating ? "wait" : "pointer",
+                  fontSize: "12px", fontWeight: 600, transition: "all 0.2s"
                 }}
               >
-                {MODEL_NAMES[key]}
+                送信 →
               </button>
-            ))}
-          </div>
-
-          <div style={{
-            flex: 1, overflow: "auto", padding: "20px",
-            display: "flex", alignItems: "center", justifyContent: "center"
-          }}>
-            <div
-              style={{
-                width: "100%", maxWidth: "480px",
-                aspectRatio: "16 / 9",
-                borderRadius: "8px",
-                background: slide.bg || "#FFFFFF",
-                border: `1px solid ${V.border}`,
-                display: "flex", flexDirection: "column",
-                alignItems: (slide.layout === "cover" || slide.layout === "closing") ? "center" : "flex-start",
-                justifyContent: (slide.layout === "cover" || slide.layout === "closing") ? "center" : "flex-start",
-                padding: "24px",
-                color: slide.light ? V.white : V.t1,
-                overflow: "hidden",
-                boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-                position: "relative"
-              }}
-            >
-              {(slide.layout === "cover" || slide.layout === "closing") ? (
-                <>
-                  <div style={{
-                    fontSize: "28px", fontWeight: 800,
-                    textAlign: "center", lineHeight: 1.3, marginBottom: "16px"
-                  }}>
-                    {slide.heading || slide.title}
-                  </div>
-                  {slide.sub && (
-                    <div style={{
-                      fontSize: "13px", textAlign: "center", opacity: 0.9
-                    }}>
-                      {slide.sub}
-                    </div>
-                  )}
-                  {slide.note && (
-                    <div style={{
-                      position: "absolute", bottom: "16px", right: "20px",
-                      fontSize: "10px", opacity: 0.7
-                    }}>
-                      {slide.note}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <div style={{
-                    fontSize: "20px", fontWeight: 800, marginBottom: "10px"
-                  }}>
-                    {slide.heading || slide.title}
-                  </div>
-                  {slide.sub && (
-                    <div style={{
-                      fontSize: "11px",
-                      color: slide.light ? "rgba(255,255,255,0.8)" : V.t3,
-                      marginBottom: "12px", fontWeight: 500
-                    }}>
-                      {slide.sub}
-                    </div>
-                  )}
-                  <div style={{
-                    fontSize: "11px", lineHeight: 1.6,
-                    whiteSpace: "pre-wrap",
-                    opacity: slide.light ? 0.9 : 1,
-                    overflow: "auto", flex: 1, width: "100%"
-                  }}>
-                    {slide.body}
-                  </div>
-                </>
-              )}
             </div>
           </div>
+        )}
 
+        {/* Center/Right Panel: Composition (text review) */}
+        {!showPreview && (
           <div style={{
-            padding: "12px 16px",
-            borderTop: `1px solid ${V.border}`,
-            background: V.white,
-            fontSize: "11px", color: V.t4
+            flex: 1,
+            display: "flex", flexDirection: "column",
+            background: V.white, overflow: "hidden"
           }}>
-            <div>
-              <strong>レイアウト:</strong> {slide.layoutLabel || slide.layout}
+            <div style={{
+              padding: "12px 16px",
+              borderBottom: `1px solid ${V.border}`,
+              fontSize: "12px", fontWeight: 600, color: V.t3,
+              display: "flex", justifyContent: "space-between", alignItems: "center"
+            }}>
+              <span>📑 構成・本文確認</span>
+              <span style={{ fontSize: "11px", color: V.t4 }}>
+                {slides.length}枚
+              </span>
             </div>
-            {slide.dataSrc && slide.dataSrc.length > 0 && (
-              <div style={{ marginTop: "4px" }}>
-                データ: {slide.dataSrc.join(", ")}
+
+            <div style={{ flex: 1, overflowY: "auto", padding: "12px" }}>
+              {slides.map((s, i) => (
+                <div
+                  key={s.id}
+                  onClick={() => setCurSlide(i)}
+                  style={{
+                    padding: "14px", borderRadius: "6px",
+                    background: curSlide === i ? `${V.accent}08` : V.main,
+                    cursor: "pointer", marginBottom: "10px",
+                    fontSize: "12px",
+                    border: `1px solid ${curSlide === i ? V.accent : V.border}`,
+                    transition: "all 0.2s"
+                  }}
+                >
+                  <div style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    marginBottom: "6px"
+                  }}>
+                    <span style={{ fontWeight: 700, color: V.t1 }}>
+                      {s.id}. {s.heading || s.title}
+                    </span>
+                    <span style={{
+                      fontSize: "10px", padding: "2px 8px", borderRadius: "10px",
+                      background: V.border, color: V.t3
+                    }}>
+                      {s.layoutLabel || s.layout}
+                    </span>
+                  </div>
+                  {s.sub && (
+                    <div style={{
+                      fontSize: "12px", color: V.t2, marginBottom: "6px", fontWeight: 500
+                    }}>
+                      {s.sub}
+                    </div>
+                  )}
+                  {s.body && (
+                    <div style={{
+                      fontSize: "12px", lineHeight: 1.6, color: V.t2,
+                      whiteSpace: "pre-wrap",
+                      borderTop: `1px solid ${V.border}`,
+                      paddingTop: "8px", marginTop: "4px"
+                    }}>
+                      {s.body}
+                    </div>
+                  )}
+                  {s.note && (
+                    <div style={{
+                      fontSize: "11px", color: V.t4, marginTop: "6px", fontStyle: "italic"
+                    }}>
+                      💡 {s.note}
+                    </div>
+                  )}
+                  {s.dataSrc && s.dataSrc.length > 0 && (
+                    <div style={{ fontSize: "10px", color: V.t4, marginTop: "4px" }}>
+                      📊 {s.dataSrc.join(", ")}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Preview Mode (shown only after "PPTXを作成" clicked) */}
+        {showPreview && (
+          <div style={{
+            flex: 1,
+            display: "flex", flexDirection: "column",
+            background: V.main, overflow: "hidden"
+          }}>
+            <div style={{
+              padding: "12px 16px",
+              borderBottom: `1px solid ${V.border}`,
+              fontSize: "12px", fontWeight: 600, color: V.t3,
+              background: V.white,
+              display: "flex", justifyContent: "space-between", alignItems: "center"
+            }}>
+              <span>👁️ スライドプレビュー</span>
+              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                <button
+                  onClick={() => setCurSlide(Math.max(0, curSlide - 1))}
+                  disabled={curSlide === 0}
+                  style={{
+                    padding: "4px 8px", borderRadius: "4px",
+                    border: `1px solid ${V.border}`, background: V.white,
+                    cursor: curSlide === 0 ? "default" : "pointer",
+                    fontSize: "11px", opacity: curSlide === 0 ? 0.3 : 1
+                  }}
+                >
+                  ◀
+                </button>
+                <span style={{ fontSize: "11px", color: V.t4, minWidth: "40px", textAlign: "center" }}>
+                  {curSlide + 1} / {slides.length}
+                </span>
+                <button
+                  onClick={() => setCurSlide(Math.min(slides.length - 1, curSlide + 1))}
+                  disabled={curSlide === slides.length - 1}
+                  style={{
+                    padding: "4px 8px", borderRadius: "4px",
+                    border: `1px solid ${V.border}`, background: V.white,
+                    cursor: curSlide === slides.length - 1 ? "default" : "pointer",
+                    fontSize: "11px", opacity: curSlide === slides.length - 1 ? 0.3 : 1
+                  }}
+                >
+                  ▶
+                </button>
               </div>
-            )}
+            </div>
+
+            <div style={{
+              flex: 1, overflow: "auto", padding: "24px",
+              display: "flex", alignItems: "center", justifyContent: "center"
+            }}>
+              <div
+                style={{
+                  width: "100%", maxWidth: "640px",
+                  aspectRatio: "16 / 9",
+                  borderRadius: "8px",
+                  background: slide.bg || "#FFFFFF",
+                  border: `1px solid ${V.border}`,
+                  display: "flex", flexDirection: "column",
+                  alignItems: (slide.layout === "cover" || slide.layout === "closing") ? "center" : "flex-start",
+                  justifyContent: (slide.layout === "cover" || slide.layout === "closing") ? "center" : "flex-start",
+                  padding: "32px",
+                  color: slide.light ? V.white : V.t1,
+                  overflow: "hidden",
+                  boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+                  position: "relative"
+                }}
+              >
+                {(slide.layout === "cover" || slide.layout === "closing") ? (
+                  <>
+                    <div style={{
+                      fontSize: "32px", fontWeight: 800,
+                      textAlign: "center", lineHeight: 1.3, marginBottom: "16px"
+                    }}>
+                      {slide.heading || slide.title}
+                    </div>
+                    {slide.sub && (
+                      <div style={{ fontSize: "15px", textAlign: "center", opacity: 0.9 }}>
+                        {slide.sub}
+                      </div>
+                    )}
+                    {slide.note && (
+                      <div style={{
+                        position: "absolute", bottom: "20px", right: "24px",
+                        fontSize: "11px", opacity: 0.7
+                      }}>
+                        {slide.note}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: "24px", fontWeight: 800, marginBottom: "12px" }}>
+                      {slide.heading || slide.title}
+                    </div>
+                    {slide.sub && (
+                      <div style={{
+                        fontSize: "13px",
+                        color: slide.light ? "rgba(255,255,255,0.8)" : V.t3,
+                        marginBottom: "14px", fontWeight: 500
+                      }}>
+                        {slide.sub}
+                      </div>
+                    )}
+                    <div style={{
+                      fontSize: "13px", lineHeight: 1.6,
+                      whiteSpace: "pre-wrap",
+                      opacity: slide.light ? 0.9 : 1,
+                      overflow: "auto", flex: 1, width: "100%"
+                    }}>
+                      {slide.body}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div style={{
+              padding: "12px 16px",
+              borderTop: `1px solid ${V.border}`,
+              background: V.white,
+              fontSize: "11px", color: V.t4
+            }}>
+              <strong>{slide.heading || slide.title}</strong> — {slide.layoutLabel || slide.layout}
+              {slide.dataSrc && slide.dataSrc.length > 0 && ` | データ: ${slide.dataSrc.join(", ")}`}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
