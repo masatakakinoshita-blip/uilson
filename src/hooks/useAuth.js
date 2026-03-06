@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+// Runtime client ID (fetched from server to bypass Vercel build cache)
+let _runtimeGoogleClientId = "";
+// Fallback to build-time env var
+const GOOGLE_CLIENT_ID_FALLBACK = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const GOOGLE_REDIRECT = window.location.origin;
 const SCOPES = "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive.readonly";
 const SLACK_CLIENT_ID = import.meta.env.VITE_SLACK_CLIENT_ID;
@@ -8,10 +11,22 @@ const SLACK_USER_SCOPES = "channels:read,channels:history,groups:read,groups:his
 const MS_CLIENT_ID = import.meta.env.VITE_MS_CLIENT_ID;
 const MS_SCOPES = "Mail.Read Calendars.ReadWrite User.Read Sites.Read.All Files.Read.All Chat.Read Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Read.All";
 
+// Fetch the runtime client ID from server on startup
+fetch("/api/google-config")
+  .then((r) => r.json())
+  .then((data) => {
+    if (data.clientId) _runtimeGoogleClientId = data.clientId;
+  })
+  .catch(() => {});
+
+function getGoogleClientId() {
+  return _runtimeGoogleClientId || GOOGLE_CLIENT_ID_FALLBACK;
+}
+
 // Authorization Code flow (gets refresh token for persistent sessions)
 export function googleAuthUrl(loginHint, forceConsent = false) {
   const params = {
-    client_id: GOOGLE_CLIENT_ID,
+    client_id: getGoogleClientId(),
     redirect_uri: GOOGLE_REDIRECT,
     response_type: "code",
     scope: SCOPES,
