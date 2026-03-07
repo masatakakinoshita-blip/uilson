@@ -1149,130 +1149,150 @@ export default function CreatePptx({ setView }) {
               </div>
             </div>
           ) : (
-            /* Slide preview - template-aware */
+            /* Slide preview - scalable virtual canvas approach */
             <>
               <div style={{
-                flex: 1, overflow: "auto", padding: "20px",
+                flex: 1, overflow: "hidden", padding: "12px",
                 display: "flex", alignItems: "center", justifyContent: "center"
               }}>
+                {/* Outer wrapper maintains aspect ratio and scales the virtual canvas */}
                 <div
+                  ref={el => {
+                    if (!el) return;
+                    const ro = new ResizeObserver(() => {
+                      const W = el.clientWidth, H = el.clientHeight;
+                      const inner = el.firstChild;
+                      if (!inner) return;
+                      // Virtual canvas is 960x540 (16:9), scale to fit container
+                      const scale = Math.min(W / 960, H / 540);
+                      inner.style.transform = `scale(${scale})`;
+                    });
+                    ro.observe(el);
+                    // cleanup on unmount handled by React
+                  }}
                   style={{
-                    width: "100%", maxWidth: "520px",
-                    aspectRatio: "16 / 9",
+                    width: "100%", height: "100%",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    overflow: "hidden"
+                  }}
+                >
+                  {/* Virtual 960x540 canvas - always renders at this size, then CSS-scaled */}
+                  <div style={{
+                    width: "960px", height: "540px",
+                    flexShrink: 0,
                     borderRadius: "8px",
                     ...getPreviewBg(slide),
                     border: `1px solid ${V.border}`,
                     overflow: "hidden",
                     boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
-                    position: "relative"
-                  }}
-                >
-                  {/* Template visual elements layer (shapes, images, gradients) */}
-                  {templateFile && templateInfo && (() => {
-                    const isCov = slide.layout === "cover" || slide.layout === "closing";
-                    const elms = isCov ? (templateInfo.coverElements || []) : (templateInfo.contentElements || []);
-                    if (!window._tplDbg2) { window._tplDbg2 = true; console.log("Preview render v2:", {isCov, layout: slide.layout, elmCount: elms.length, elms}); }
-                    return elms.map((el, idx) => {
-                      if (el.type === "rect") return (
-                        <div key={`te${idx}`} style={{
-                          position:"absolute", left:`${el.x}%`, top:`${el.y}%`,
-                          width:`${el.w}%`, height:`${el.h}%`,
-                          background: el.fill, opacity: el.opacity ?? 1,
-                          pointerEvents:"none", zIndex: 1
-                        }} />
-                      );
-                      if (el.type === "img") return (
-                        <img key={`te${idx}`} src={el.src} alt="" style={{
-                          position:"absolute", left:`${el.x}%`, top:`${el.y}%`,
-                          width:`${el.w}%`, height:`${el.h}%`,
-                          objectFit:"contain", pointerEvents:"none", zIndex: 1
-                        }} />
-                      );
-                      return null;
-                    });
-                  })()}
-
-                  {/* Text content layer - absolute overlay */}
-                  <div style={{
-                    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
-                    zIndex: 2,
-                    display: "flex", flexDirection: "column",
-                    alignItems: (slide.layout === "cover" || slide.layout === "closing") ? "center" : "flex-start",
-                    justifyContent: (slide.layout === "cover" || slide.layout === "closing") ? "center" : "flex-start",
-                    padding: "28px",
-                    color: getPreviewTextColor(slide)
+                    position: "relative",
+                    transformOrigin: "center center"
                   }}>
-                  {(slide.layout === "cover" || slide.layout === "closing") ? (
-                    <>
-                      <div style={{
-                        fontSize: "28px", fontWeight: 800,
-                        textAlign: "center", lineHeight: 1.3, marginBottom: "16px",
-                        fontFamily: tmHeadingFont || "inherit",
-                        color: getPreviewTextColor(slide)
-                      }}>
-                        {slide.heading || slide.title}
-                      </div>
-                      {slide.sub && (
+                    {/* Template visual elements layer */}
+                    {templateFile && templateInfo && (() => {
+                      const isCov = slide.layout === "cover" || slide.layout === "closing";
+                      const elms = isCov ? (templateInfo.coverElements || []) : (templateInfo.contentElements || []);
+                      return elms.map((el, idx) => {
+                        if (el.type === "rect") return (
+                          <div key={`te${idx}`} style={{
+                            position:"absolute", left:`${el.x}%`, top:`${el.y}%`,
+                            width:`${el.w}%`, height:`${el.h}%`,
+                            background: el.fill, opacity: el.opacity ?? 1,
+                            pointerEvents:"none", zIndex: 1
+                          }} />
+                        );
+                        if (el.type === "img") return (
+                          <img key={`te${idx}`} src={el.src} alt="" style={{
+                            position:"absolute", left:`${el.x}%`, top:`${el.y}%`,
+                            width:`${el.w}%`, height:`${el.h}%`,
+                            objectFit:"contain", pointerEvents:"none", zIndex: 1
+                          }} />
+                        );
+                        return null;
+                      });
+                    })()}
+
+                    {/* Text content layer */}
+                    <div style={{
+                      position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+                      zIndex: 2,
+                      display: "flex", flexDirection: "column",
+                      alignItems: (slide.layout === "cover" || slide.layout === "closing") ? "center" : "flex-start",
+                      justifyContent: (slide.layout === "cover" || slide.layout === "closing") ? "center" : "flex-start",
+                      padding: "48px",
+                      color: getPreviewTextColor(slide)
+                    }}>
+                    {(slide.layout === "cover" || slide.layout === "closing") ? (
+                      <>
                         <div style={{
-                          fontSize: "13px", textAlign: "center",
-                          color: getPreviewSubColor(slide),
+                          fontSize: "48px", fontWeight: 800,
+                          textAlign: "center", lineHeight: 1.3, marginBottom: "20px",
+                          fontFamily: tmHeadingFont || "inherit",
+                          color: getPreviewTextColor(slide)
+                        }}>
+                          {slide.heading || slide.title}
+                        </div>
+                        {slide.sub && (
+                          <div style={{
+                            fontSize: "22px", textAlign: "center",
+                            color: getPreviewSubColor(slide),
+                            fontFamily: tmBodyFont || "inherit"
+                          }}>
+                            {slide.sub}
+                          </div>
+                        )}
+                        {slide.note && (
+                          <div style={{
+                            position: "absolute", bottom: "24px", right: "32px",
+                            fontSize: "16px", opacity: 0.7,
+                            fontFamily: tmBodyFont || "inherit"
+                          }}>
+                            {slide.note}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {templateFile && tmAccent && (
+                          <div style={{
+                            width: "80px", height: "4px",
+                            background: tmAccent,
+                            borderRadius: "2px",
+                            marginBottom: "12px"
+                          }} />
+                        )}
+                        <div style={{
+                          fontSize: "36px", fontWeight: 800, marginBottom: "14px",
+                          fontFamily: tmHeadingFont || "inherit",
+                          color: getPreviewTextColor(slide)
+                        }}>
+                          {slide.heading || slide.title}
+                        </div>
+                        {slide.sub && (
+                          <div style={{
+                            fontSize: "20px",
+                            color: getPreviewSubColor(slide),
+                            marginBottom: "16px", fontWeight: 500,
+                            fontFamily: tmBodyFont || "inherit"
+                          }}>
+                            {slide.sub}
+                          </div>
+                        )}
+                        <div style={{
+                          fontSize: "18px", lineHeight: 1.7,
+                          whiteSpace: "pre-wrap",
+                          color: getPreviewTextColor(slide),
+                          opacity: slide.light ? 0.9 : 1,
+                          overflow: "hidden", flex: 1, width: "100%",
                           fontFamily: tmBodyFont || "inherit"
                         }}>
-                          {slide.sub}
+                          {slide.body}
                         </div>
-                      )}
-                      {slide.note && (
-                        <div style={{
-                          position: "absolute", bottom: "16px", right: "20px",
-                          fontSize: "10px", opacity: 0.7,
-                          fontFamily: tmBodyFont || "inherit"
-                        }}>
-                          {slide.note}
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      {/* Accent bar under heading (matches download output) */}
-                      {templateFile && tmAccent && (
-                        <div style={{
-                          width: "60px", height: "3px",
-                          background: tmAccent,
-                          borderRadius: "2px",
-                          marginBottom: "8px"
-                        }} />
-                      )}
-                      <div style={{
-                        fontSize: "22px", fontWeight: 800, marginBottom: "10px",
-                        fontFamily: tmHeadingFont || "inherit",
-                        color: getPreviewTextColor(slide)
-                      }}>
-                        {slide.heading || slide.title}
-                      </div>
-                      {slide.sub && (
-                        <div style={{
-                          fontSize: "12px",
-                          color: getPreviewSubColor(slide),
-                          marginBottom: "12px", fontWeight: 500,
-                          fontFamily: tmBodyFont || "inherit"
-                        }}>
-                          {slide.sub}
-                        </div>
-                      )}
-                      <div style={{
-                        fontSize: "11px", lineHeight: 1.6,
-                        whiteSpace: "pre-wrap",
-                        color: getPreviewTextColor(slide),
-                        opacity: slide.light ? 0.9 : 1,
-                        overflow: "auto", flex: 1, width: "100%",
-                        fontFamily: tmBodyFont || "inherit"
-                      }}>
-                        {slide.body}
-                      </div>
-                    </>
-                  )}
-                  </div>{/* close text content layer */}
-                </div>
+                      </>
+                    )}
+                    </div>{/* close text content layer */}
+                  </div>{/* close 960x540 virtual canvas */}
+                </div>{/* close scale wrapper */}
               </div>
 
               <div style={{
