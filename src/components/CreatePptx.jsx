@@ -212,12 +212,19 @@ export default function CreatePptx({ setView }) {
 
       const parseVisuals = async (xmlStr, relsStr, bPath) => {
         const elems = [];
-        // Shapes with fills
+        // Shapes with fills - only extract fill from <p:spPr> (shape properties),
+        // NOT from text run properties (<a:rPr>) which contain text color, not shape fill
         const spRx = /<p:sp\b[\s\S]*?<\/p:sp>/g;
         let m;
         while ((m = spRx.exec(xmlStr)) !== null) {
           const sp = m[0];
           if (sp.includes("<p:ph")) continue; // skip text placeholders
+          // Skip shapes that contain text body with actual text content (text boxes)
+          const txBody = sp.match(/<p:txBody>([\s\S]*?)<\/p:txBody>/);
+          if (txBody) {
+            const textContent = txBody[1].replace(/<[^>]+>/g, "").trim();
+            if (textContent.length > 0) continue; // has visible text → skip (it's a text box, not a decoration)
+          }
           const off = sp.match(/<a:off x="(\d+)" y="(\d+)"/);
           const ex = sp.match(/<a:ext cx="(\d+)" cy="(\d+)"/);
           if (!off || !ex) continue;
@@ -225,8 +232,13 @@ export default function CreatePptx({ setView }) {
           const w = parseInt(ex[1])/EMU_W*100, h = parseInt(ex[2])/EMU_H*100;
           if (w < 0.3 && h < 0.3) continue;
 
-          // Solid fill (srgbClr, schemeClr, or sysClr)
-          const solidFill = sp.match(/<a:solidFill>([\s\S]*?)<\/a:solidFill>/);
+          // Only look for fill inside <p:spPr> (shape properties), not entire shape
+          const spPr = sp.match(/<p:spPr\b[^>]*>([\s\S]*?)<\/p:spPr>/);
+          if (!spPr) continue;
+          const spPrContent = spPr[1];
+
+          // Solid fill (srgbClr, schemeClr, or sysClr) - from shape properties only
+          const solidFill = spPrContent.match(/<a:solidFill>([\s\S]*?)<\/a:solidFill>/);
           if (solidFill) {
             const color = resolveColor(solidFill[1]);
             if (color) {
@@ -236,8 +248,8 @@ export default function CreatePptx({ setView }) {
             }
           }
 
-          // Gradient fill (supports both srgbClr and schemeClr)
-          const gradSection = sp.match(/<a:gradFill>([\s\S]*?)<\/a:gradFill>/);
+          // Gradient fill (supports both srgbClr and schemeClr) - from shape properties only
+          const gradSection = spPrContent.match(/<a:gradFill>([\s\S]*?)<\/a:gradFill>/);
           if (gradSection) {
             const stops = [];
             const gsRx = /<a:gs pos="(\d+)">([\s\S]*?)<\/a:gs>/g;
@@ -262,13 +274,19 @@ export default function CreatePptx({ setView }) {
           while ((innerM = innerSpRx.exec(grp)) !== null) {
             const sp = innerM[0];
             if (sp.includes("<p:ph")) continue;
+            // Skip text boxes in groups too
+            const txB = sp.match(/<p:txBody>([\s\S]*?)<\/p:txBody>/);
+            if (txB) { const tc = txB[1].replace(/<[^>]+>/g, "").trim(); if (tc.length > 0) continue; }
             const off = sp.match(/<a:off x="(\d+)" y="(\d+)"/);
             const ex = sp.match(/<a:ext cx="(\d+)" cy="(\d+)"/);
             if (!off || !ex) continue;
             const x = parseInt(off[1])/EMU_W*100, y = parseInt(off[2])/EMU_H*100;
             const w = parseInt(ex[1])/EMU_W*100, h = parseInt(ex[2])/EMU_H*100;
             if (w < 0.3 && h < 0.3) continue;
-            const solidFill = sp.match(/<a:solidFill>([\s\S]*?)<\/a:solidFill>/);
+            // Only look in spPr for fill
+            const grpSpPr = sp.match(/<p:spPr\b[^>]*>([\s\S]*?)<\/p:spPr>/);
+            if (!grpSpPr) continue;
+            const solidFill = grpSpPr[1].match(/<a:solidFill>([\s\S]*?)<\/a:solidFill>/);
             if (solidFill) {
               const color = resolveColor(solidFill[1]);
               if (color) {
@@ -1153,7 +1171,7 @@ export default function CreatePptx({ setView }) {
                   {templateFile && templateInfo && (() => {
                     const isCov = slide.layout === "cover" || slide.layout === "closing";
                     const elms = isCov ? (templateInfo.coverElements || []) : (templateInfo.contentElements || []);
-                    if (!window._tplDbg) { window._tplDbg = true; console.log("Preview render:", {templateFile: !!templateFile, templateInfo: !!templateInfo, isCov, layout: slide.layout, elmCount: elms.length, elms}); }
+                    if (!window._tplDbg2) { window._tplDbg2 = true; console.log("Preview render v2:", {isCov, layout: slide.layout, elmCount: elms.length, elms}); }
                     return elms.map((el, idx) => {
                       if (el.type === "rect") return (
                         <div key={`te${idx}`} style={{
