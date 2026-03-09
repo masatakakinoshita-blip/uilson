@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { DEFAULT_SLIDES, MODEL_COLORS, MODEL_NAMES } from "../data/slides";
+import { DEFAULT_SLIDES, MODEL_COLORS, MODEL_NAMES, PRESET_TEMPLATES } from "../data/slides";
 
 const V = {
   bg:"#F0F2F7", sb:"#FFFFFF", main:"#F5F6FA", card:"#FFFFFF", border:"#DDE1EB",
@@ -22,6 +22,8 @@ export default function CreatePptx({ setView }) {
   const [templateName, setTemplateName] = useState("");
   const [templateInfo, setTemplateInfo] = useState(null);
   const [dragOver, setDragOver] = useState(false);
+  const [presetId, setPresetId] = useState("default");
+  const [showPresetPicker, setShowPresetPicker] = useState(false);
   const chatEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const templateBufferRef = useRef(null);
@@ -628,58 +630,80 @@ export default function CreatePptx({ setView }) {
         await pptx.writeFile({ fileName: "UILSON_presentation.pptx" });
 
       } else {
-        // ── Default: No template, plain PptxGenJS ──
+        // ── Default: No uploaded template, use preset style with PptxGenJS ──
         await loadScript("https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js");
 
         const pptx = new window.PptxGenJS();
         pptx.defineLayout({ name: "WIDE", width: 13.33, height: 7.5 });
         pptx.layout = "WIDE";
 
+        const hFont = preset.headingFont.split(",")[0].trim();
+        const bFont = preset.bodyFont.split(",")[0].trim();
+        const pCoverBg = preset.coverBg.replace("#", "");
+        const pClosingBg = preset.closingBg.replace("#", "");
+        const pContentBg = preset.contentBg.replace("#", "");
+        const pAccent = preset.accent.replace("#", "");
+        const pTextDark = preset.textDark.replace("#", "");
+
         for (const s of slides) {
           const pptSlide = pptx.addSlide();
-          const bgColor = (s.bg || "#FFFFFF").replace("#", "");
+          const isCoverClose = s.layout === "cover" || s.layout === "closing";
+          const bgColor = isCoverClose
+            ? (s.layout === "cover" ? pCoverBg : pClosingBg)
+            : pContentBg;
           pptSlide.background = { color: bgColor };
-          const textColor = s.light ? "FFFFFF" : "333333";
-          const subColor = s.light ? "CCCCCC" : "888888";
+          const textColor = (isCoverClose || s.light) ? "FFFFFF" : pTextDark;
+          const subColor = (isCoverClose || s.light) ? "CCCCCC" : "888888";
 
-          if (s.layout === "cover" || s.layout === "closing") {
+          if (isCoverClose) {
+            // Accent bar for left-aligned covers
+            if (preset.coverAlign === "left") {
+              pptSlide.addShape("rect", {
+                x: 0.5, y: 1.8, w: 1.0, h: 0.05, fill: { color: pAccent }
+              });
+            }
             pptSlide.addText(s.heading || s.title, {
               x: 0.5, y: 2.0, w: 12.33, h: 1.5,
-              fontSize: 36, fontFace: "Yu Gothic",
-              color: textColor, bold: true, align: "center"
+              fontSize: parseInt(preset.headingSizeCover), fontFace: hFont,
+              color: textColor, bold: true, align: preset.coverAlign
             });
             if (s.sub) {
               pptSlide.addText(s.sub, {
                 x: 0.5, y: 3.8, w: 12.33, h: 0.8,
-                fontSize: 18, fontFace: "Yu Gothic",
-                color: subColor, align: "center"
+                fontSize: 18, fontFace: bFont,
+                color: subColor, align: preset.coverAlign
               });
             }
             if (s.note) {
               pptSlide.addText(s.note, {
                 x: 9, y: 6.5, w: 4, h: 0.5,
-                fontSize: 10, fontFace: "Yu Gothic",
+                fontSize: 10, fontFace: bFont,
                 color: subColor, align: "right"
               });
             }
           } else {
+            // Accent line under heading
+            const barW = preset.accentBarWidth === "100%" ? 12.33 : 1.5;
+            pptSlide.addShape("rect", {
+              x: 0.5, y: 1.25, w: barW, h: 0.04, fill: { color: pAccent }
+            });
             pptSlide.addText(s.heading || s.title, {
               x: 0.5, y: 0.3, w: 12.33, h: 1.0,
-              fontSize: 28, fontFace: "Yu Gothic",
+              fontSize: parseInt(preset.headingSizeContent), fontFace: hFont,
               color: textColor, bold: true
             });
             if (s.sub) {
               pptSlide.addText(s.sub, {
-                x: 0.5, y: 1.3, w: 12.33, h: 0.6,
-                fontSize: 14, fontFace: "Yu Gothic",
+                x: 0.5, y: 1.4, w: 12.33, h: 0.6,
+                fontSize: 14, fontFace: bFont,
                 color: subColor
               });
             }
             if (s.body) {
-              const bodyY = s.sub ? 2.1 : 1.5;
+              const bodyY = s.sub ? 2.2 : 1.6;
               pptSlide.addText(s.body, {
                 x: 0.5, y: bodyY, w: 12.33, h: 4.5,
-                fontSize: 16, fontFace: "Yu Gothic",
+                fontSize: 16, fontFace: bFont,
                 color: textColor, lineSpacingMultiple: 1.5,
                 valign: "top"
               });
@@ -702,48 +726,63 @@ export default function CreatePptx({ setView }) {
   const tColors = templateInfo?.colors || {};
   const tFonts = templateInfo?.fonts || {};
   const tBgs = templateInfo?.backgrounds || {};
+  const preset = PRESET_TEMPLATES.find(p => p.id === presetId) || PRESET_TEMPLATES[0];
 
-  // Derive preview colors from template theme
-  const tmCoverBg = tBgs.coverColor ? `#${tBgs.coverColor}` : tColors.dk1 ? `#${tColors.dk1}` : null;
-  const tmContentBg = tBgs.contentColor ? `#${tBgs.contentColor}` : tColors.lt1 ? `#${tColors.lt1}` : null;
-  const tmAccent = tColors.accent1 ? `#${tColors.accent1}` : null;
-  const tmTextDark = tColors.dk1 ? `#${tColors.dk1}` : null;
-  const tmTextLight = tColors.lt1 ? `#${tColors.lt1}` : "#FFFFFF";
-  const tmSubDark = tColors.dk2 ? `#${tColors.dk2}` : null;
-  const tmHeadingFont = tFonts.heading || null;
-  const tmBodyFont = tFonts.body || null;
+  // Derive preview colors: uploaded template > preset > defaults
+  const tmCoverBg = templateFile
+    ? (tBgs.coverColor ? `#${tBgs.coverColor}` : tColors.dk1 ? `#${tColors.dk1}` : preset.coverBg)
+    : (preset.preview.coverGrad || preset.coverBg);
+  const tmContentBg = templateFile
+    ? (tBgs.contentColor ? `#${tBgs.contentColor}` : tColors.lt1 ? `#${tColors.lt1}` : preset.contentBg)
+    : preset.contentBg;
+  const tmAccent = templateFile
+    ? (tColors.accent1 ? `#${tColors.accent1}` : preset.accent)
+    : preset.accent;
+  const tmTextDark = templateFile
+    ? (tColors.dk1 ? `#${tColors.dk1}` : preset.textDark)
+    : preset.textDark;
+  const tmTextLight = templateFile
+    ? (tColors.lt1 ? `#${tColors.lt1}` : preset.textLight)
+    : preset.textLight;
+  const tmSubDark = templateFile
+    ? (tColors.dk2 ? `#${tColors.dk2}` : preset.subDark)
+    : preset.subDark;
+  const tmHeadingFont = templateFile
+    ? (tFonts.heading || preset.headingFont)
+    : preset.headingFont;
+  const tmBodyFont = templateFile
+    ? (tFonts.body || preset.bodyFont)
+    : preset.bodyFont;
 
-  // Get bg style for a slide depending on template
+  // Get bg style for a slide depending on template/preset
   const getPreviewBg = (s) => {
     const isCoverClose = s.layout === "cover" || s.layout === "closing";
     if (templateFile && isCoverClose) {
       if (tBgs.cover) return { backgroundImage: `url(${tBgs.cover})`, backgroundSize: "cover", backgroundPosition: "center" };
-      if (tmCoverBg) return { background: tmCoverBg };
+      return { background: tmCoverBg };
     }
     if (templateFile && !isCoverClose) {
       if (tBgs.content) return { backgroundImage: `url(${tBgs.content})`, backgroundSize: "cover", backgroundPosition: "center" };
-      if (tmContentBg) return { background: tmContentBg };
+      return { background: tmContentBg };
     }
-    return { background: s.bg || "#FFFFFF" };
+    // Preset template (no uploaded file)
+    if (isCoverClose) {
+      return { background: s.layout === "closing" ? preset.closingBg : tmCoverBg };
+    }
+    return { background: tmContentBg };
   };
 
   // Get text color for preview
   const getPreviewTextColor = (s) => {
     const isCoverClose = s.layout === "cover" || s.layout === "closing";
-    if (templateFile) {
-      if (isCoverClose || s.light) return tmTextLight || "#FFFFFF";
-      return tmTextDark || V.t1;
-    }
-    return s.light ? V.white : V.t1;
+    if (isCoverClose || s.light) return tmTextLight;
+    return tmTextDark;
   };
 
   const getPreviewSubColor = (s) => {
     const isCoverClose = s.layout === "cover" || s.layout === "closing";
-    if (templateFile) {
-      if (isCoverClose || s.light) return "rgba(255,255,255,0.7)";
-      return tmSubDark || V.t3;
-    }
-    return s.light ? "rgba(255,255,255,0.8)" : V.t3;
+    if (isCoverClose || s.light) return preset.subLight;
+    return tmSubDark;
   };
 
   return (
@@ -843,9 +882,81 @@ export default function CreatePptx({ setView }) {
             💬 チャット
           </div>
 
+          {/* ── Preset Template Selector ── */}
+          <div style={{
+            padding: "8px 12px",
+            borderBottom: `1px solid ${V.border}`,
+            background: V.white
+          }}>
+            <div
+              onClick={() => setShowPresetPicker(!showPresetPicker)}
+              style={{
+                display: "flex", alignItems: "center", gap: "8px",
+                cursor: "pointer", padding: "6px 10px", borderRadius: "8px",
+                border: `1px solid ${V.border}`,
+                background: V.main, transition: "all 0.2s"
+              }}
+            >
+              {/* Mini color preview */}
+              <div style={{ display: "flex", gap: "3px", flexShrink: 0 }}>
+                <div style={{ width: 14, height: 14, borderRadius: 3, background: preset.coverBg, border: `1px solid ${V.border}` }} />
+                <div style={{ width: 14, height: 14, borderRadius: 3, background: preset.accent }} />
+                <div style={{ width: 14, height: 14, borderRadius: 3, background: preset.contentBg, border: `1px solid ${V.border}` }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: V.t1 }}>{preset.name}</div>
+                <div style={{ fontSize: "10px", color: V.t3 }}>{preset.desc}</div>
+              </div>
+              <span style={{ fontSize: "10px", color: V.t4, flexShrink: 0 }}>
+                {showPresetPicker ? "▲" : "▼"}
+              </span>
+            </div>
+
+            {showPresetPicker && (
+              <div style={{
+                marginTop: "6px", display: "flex", flexDirection: "column", gap: "4px",
+                maxHeight: "220px", overflowY: "auto"
+              }}>
+                {PRESET_TEMPLATES.map(pt => (
+                  <div
+                    key={pt.id}
+                    onClick={() => { setPresetId(pt.id); setShowPresetPicker(false); }}
+                    style={{
+                      display: "flex", alignItems: "center", gap: "8px",
+                      padding: "6px 8px", borderRadius: "6px",
+                      border: `1px solid ${pt.id === presetId ? preset.accent : V.border}`,
+                      background: pt.id === presetId ? `${preset.accent}10` : V.white,
+                      cursor: "pointer", transition: "all 0.15s"
+                    }}
+                    onMouseEnter={e => { if (pt.id !== presetId) e.currentTarget.style.background = V.main; }}
+                    onMouseLeave={e => { if (pt.id !== presetId) e.currentTarget.style.background = V.white; }}
+                  >
+                    {/* Swatch strip */}
+                    <div style={{
+                      display: "flex", flexDirection: "column", gap: "2px", flexShrink: 0
+                    }}>
+                      <div style={{ display: "flex", gap: "2px" }}>
+                        <div style={{ width: 16, height: 10, borderRadius: 2, background: pt.coverBg, border: `1px solid ${V.border}` }} />
+                        <div style={{ width: 16, height: 10, borderRadius: 2, background: pt.accent }} />
+                      </div>
+                      <div style={{ width: 34, height: 3, borderRadius: 1, background: pt.contentBg, border: `1px solid ${V.border}` }} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: "11px", fontWeight: 600, color: V.t1 }}>{pt.name}</div>
+                      <div style={{ fontSize: "9px", color: V.t3 }}>{pt.desc}</div>
+                    </div>
+                    {pt.id === presetId && (
+                      <span style={{ fontSize: "11px", color: preset.accent, fontWeight: 700 }}>✓</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* ── Template Upload Area ── */}
           <div style={{
-            padding: "10px 12px",
+            padding: "8px 12px",
             borderBottom: `1px solid ${V.border}`,
             background: templateFile ? `${V.green}08` : V.main
           }}>
@@ -863,49 +974,43 @@ export default function CreatePptx({ setView }) {
                 onDragLeave={handleDragLeave}
                 onClick={() => fileInputRef.current?.click()}
                 style={{
-                  border: `2px dashed ${dragOver ? V.accent : V.border2}`,
-                  borderRadius: "8px",
-                  padding: "12px",
+                  border: `1px dashed ${dragOver ? V.accent : V.border2}`,
+                  borderRadius: "6px",
+                  padding: "8px",
                   textAlign: "center",
                   cursor: "pointer",
                   background: dragOver ? `${V.accent}08` : "transparent",
                   transition: "all 0.2s"
                 }}
               >
-                <div style={{ fontSize: "20px", marginBottom: "4px", opacity: 0.5 }}>📎</div>
-                <div style={{ fontSize: "11px", color: V.t3, lineHeight: 1.5 }}>
-                  テンプレート (.pptx) をドラッグ&ドロップ<br/>
-                  またはクリックして選択
-                </div>
-                <div style={{ fontSize: "10px", color: V.t4, marginTop: "4px" }}>
-                  テンプレなしでもOK
+                <div style={{ fontSize: "10px", color: V.t4, lineHeight: 1.5 }}>
+                  📎 独自テンプレート (.pptx) をアップロード
                 </div>
               </div>
             ) : (
               <div style={{
                 display: "flex", alignItems: "center", gap: "8px",
-                background: V.white, borderRadius: "8px", padding: "8px 12px",
+                background: V.white, borderRadius: "6px", padding: "6px 10px",
                 border: `1px solid ${V.green}40`
               }}>
-                <span style={{ fontSize: "18px" }}>📊</span>
+                <span style={{ fontSize: "14px" }}>📊</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{
-                    fontSize: "11px", fontWeight: 600, color: V.t1,
+                    fontSize: "10px", fontWeight: 600, color: V.t1,
                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
                   }}>
                     {templateName}
                   </div>
-                  <div style={{ fontSize: "10px", color: V.green }}>
-                    テンプレート適用中
+                  <div style={{ fontSize: "9px", color: V.green }}>
+                    アップロードテンプレ適用中
                     {templateInfo?.slideCount && ` · ${templateInfo.slideCount}枚`}
-                    {templateInfo?.fonts?.heading && ` · ${templateInfo.fonts.heading}`}
                   </div>
                 </div>
                 <button
                   onClick={removeTemplate}
                   style={{
                     border: "none", background: "none", cursor: "pointer",
-                    fontSize: "14px", color: V.t4, padding: "2px 4px",
+                    fontSize: "12px", color: V.t4, padding: "2px 4px",
                     borderRadius: "4px"
                   }}
                   onMouseEnter={e => e.currentTarget.style.color = V.red}
@@ -1021,10 +1126,10 @@ export default function CreatePptx({ setView }) {
                 onClick={() => { setCurSlide(i); if (previewing) setPreviewing(true); }}
                 style={{
                   padding: "14px", borderRadius: "6px",
-                  background: curSlide === i ? `${templateFile && tmAccent ? tmAccent : V.accent}10` : V.main,
+                  background: curSlide === i ? `${preset.accent}10` : V.main,
                   cursor: "pointer", marginBottom: "10px",
                   fontSize: "12px",
-                  border: `1px solid ${curSlide === i ? (templateFile && tmAccent ? tmAccent : V.accent) : V.border}`,
+                  border: `1px solid ${curSlide === i ? preset.accent : V.border}`,
                   transition: "all 0.2s"
                 }}
               >
@@ -1067,27 +1172,25 @@ export default function CreatePptx({ setView }) {
                     📊 {s.dataSrc.join(", ")}
                   </div>
                 )}
-                {/* Mini color preview strip for template */}
-                {templateFile && tColors.accent1 && (
-                  <div style={{
-                    display: "flex", gap: "3px", marginTop: "8px",
-                    paddingTop: "6px", borderTop: `1px solid ${V.border}`
-                  }}>
-                    {(s.layout === "cover" || s.layout === "closing") ? (
-                      <div style={{
-                        flex: 1, height: "4px", borderRadius: "2px",
-                        background: tmCoverBg || `#${tColors.dk1 || "1E2D50"}`
-                      }} />
-                    ) : (
-                      <>
-                        <div style={{ flex: 2, height: "4px", borderRadius: "2px",
-                          background: tmContentBg || "#FFFFFF", border: `1px solid ${V.border}` }} />
-                        <div style={{ flex: 1, height: "4px", borderRadius: "2px",
-                          background: tmAccent || V.accent }} />
-                      </>
-                    )}
-                  </div>
-                )}
+                {/* Mini color preview strip for template/preset */}
+                <div style={{
+                  display: "flex", gap: "3px", marginTop: "8px",
+                  paddingTop: "6px", borderTop: `1px solid ${V.border}`
+                }}>
+                  {(s.layout === "cover" || s.layout === "closing") ? (
+                    <div style={{
+                      flex: 1, height: "4px", borderRadius: "2px",
+                      background: preset.coverBg
+                    }} />
+                  ) : (
+                    <>
+                      <div style={{ flex: 2, height: "4px", borderRadius: "2px",
+                        background: preset.contentBg, border: `1px solid ${V.border}` }} />
+                      <div style={{ flex: 1, height: "4px", borderRadius: "2px",
+                        background: preset.accent }} />
+                    </>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -1217,26 +1320,40 @@ export default function CreatePptx({ setView }) {
                       position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
                       zIndex: 2,
                       display: "flex", flexDirection: "column",
-                      alignItems: (slide.layout === "cover" || slide.layout === "closing") ? "center" : "flex-start",
+                      alignItems: (slide.layout === "cover" || slide.layout === "closing")
+                        ? (preset.coverAlign === "left" ? "flex-start" : "center")
+                        : (preset.contentAlign === "left" ? "flex-start" : "center"),
                       justifyContent: (slide.layout === "cover" || slide.layout === "closing") ? "center" : "flex-start",
                       padding: "48px",
                       color: getPreviewTextColor(slide)
                     }}>
                     {(slide.layout === "cover" || slide.layout === "closing") ? (
                       <>
+                        {/* Cover accent bar for left-aligned presets */}
+                        {preset.coverAlign === "left" && (
+                          <div style={{
+                            width: preset.accentBarWidth,
+                            height: preset.accentBarHeight,
+                            background: preset.accent,
+                            borderRadius: "2px",
+                            marginBottom: "16px"
+                          }} />
+                        )}
                         <div style={{
-                          fontSize: "48px", fontWeight: 800,
-                          textAlign: "center", lineHeight: 1.3, marginBottom: "20px",
-                          fontFamily: tmHeadingFont || "inherit",
-                          color: getPreviewTextColor(slide)
+                          fontSize: preset.headingSizeCover, fontWeight: 800,
+                          textAlign: preset.coverAlign, lineHeight: 1.3, marginBottom: "20px",
+                          fontFamily: tmHeadingFont,
+                          color: getPreviewTextColor(slide),
+                          width: "100%"
                         }}>
                           {slide.heading || slide.title}
                         </div>
                         {slide.sub && (
                           <div style={{
-                            fontSize: "22px", textAlign: "center",
+                            fontSize: "22px", textAlign: preset.coverAlign,
                             color: getPreviewSubColor(slide),
-                            fontFamily: tmBodyFont || "inherit"
+                            fontFamily: tmBodyFont,
+                            width: "100%"
                           }}>
                             {slide.sub}
                           </div>
@@ -1245,7 +1362,7 @@ export default function CreatePptx({ setView }) {
                           <div style={{
                             position: "absolute", bottom: "24px", right: "32px",
                             fontSize: "16px", opacity: 0.7,
-                            fontFamily: tmBodyFont || "inherit"
+                            fontFamily: tmBodyFont
                           }}>
                             {slide.note}
                           </div>
@@ -1253,18 +1370,18 @@ export default function CreatePptx({ setView }) {
                       </>
                     ) : (
                       <>
-                        {templateFile && tmAccent && (
-                          <div style={{
-                            width: "80px", height: "4px",
-                            background: tmAccent,
-                            borderRadius: "2px",
-                            marginBottom: "12px"
-                          }} />
-                        )}
                         <div style={{
-                          fontSize: "36px", fontWeight: 800, marginBottom: "14px",
-                          fontFamily: tmHeadingFont || "inherit",
-                          color: getPreviewTextColor(slide)
+                          width: preset.accentBarWidth === "100%" ? "100%" : preset.accentBarWidth,
+                          height: preset.accentBarHeight,
+                          background: tmAccent,
+                          borderRadius: "2px",
+                          marginBottom: "12px"
+                        }} />
+                        <div style={{
+                          fontSize: preset.headingSizeContent, fontWeight: 800, marginBottom: "14px",
+                          fontFamily: tmHeadingFont,
+                          color: getPreviewTextColor(slide),
+                          width: "100%"
                         }}>
                           {slide.heading || slide.title}
                         </div>
@@ -1273,7 +1390,8 @@ export default function CreatePptx({ setView }) {
                             fontSize: "20px",
                             color: getPreviewSubColor(slide),
                             marginBottom: "16px", fontWeight: 500,
-                            fontFamily: tmBodyFont || "inherit"
+                            fontFamily: tmBodyFont,
+                            width: "100%"
                           }}>
                             {slide.sub}
                           </div>
@@ -1284,7 +1402,7 @@ export default function CreatePptx({ setView }) {
                           color: getPreviewTextColor(slide),
                           opacity: slide.light ? 0.9 : 1,
                           overflow: "hidden", flex: 1, width: "100%",
-                          fontFamily: tmBodyFont || "inherit"
+                          fontFamily: tmBodyFont
                         }}>
                           {slide.body}
                         </div>
@@ -1303,15 +1421,13 @@ export default function CreatePptx({ setView }) {
                 display: "flex", justifyContent: "space-between", alignItems: "center"
               }}>
                 <span><strong>{slide.heading || slide.title}</strong> — {slide.layoutLabel || slide.layout}</span>
-                {templateFile && (
-                  <span style={{
-                    fontSize: "10px", padding: "2px 8px",
-                    background: `${V.green}15`, color: V.green,
-                    borderRadius: "4px", fontWeight: 600
-                  }}>
-                    テンプレ適用
-                  </span>
-                )}
+                <span style={{
+                  fontSize: "10px", padding: "2px 8px",
+                  background: `${preset.accent}15`, color: preset.accent,
+                  borderRadius: "4px", fontWeight: 600
+                }}>
+                  {templateFile ? "テンプレ適用" : preset.name}
+                </span>
               </div>
             </>
           )}
