@@ -28,6 +28,7 @@ export default function CreatePptx({ setView }) {
   const [presetId, setPresetId] = useState("default");
   const [showPresetPicker, setShowPresetPicker] = useState(false);
   const [refFiles, setRefFiles] = useState([]); // {name, content, active, type}
+  const [editingField, setEditingField] = useState(null); // track which field is being edited in preview
   const chatEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const refFileInputRef = useRef(null);
@@ -36,6 +37,55 @@ export default function CreatePptx({ setView }) {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages]);
+
+  /* ── Slide update helper ── */
+  const updateSlide = (idx, updates) => {
+    setSlides(prev => prev.map((sl, i) => i === idx ? { ...sl, ...updates } : sl));
+  };
+  const updateSlideItem = (slideIdx, itemIdx, field, value) => {
+    setSlides(prev => prev.map((sl, i) => {
+      if (i !== slideIdx) return sl;
+      const items = [...(sl.items || [])];
+      items[itemIdx] = { ...items[itemIdx], [field]: value };
+      return { ...sl, items };
+    }));
+  };
+  const updateSlideStat = (slideIdx, statIdx, field, value) => {
+    setSlides(prev => prev.map((sl, i) => {
+      if (i !== slideIdx) return sl;
+      const stats = [...(sl.stats || [])];
+      stats[statIdx] = { ...stats[statIdx], [field]: value };
+      return { ...sl, stats };
+    }));
+  };
+  const updateSlideStep = (slideIdx, stepIdx, field, value) => {
+    setSlides(prev => prev.map((sl, i) => {
+      if (i !== slideIdx) return sl;
+      const steps = [...(sl.steps || [])];
+      steps[stepIdx] = { ...steps[stepIdx], [field]: value };
+      return { ...sl, steps };
+    }));
+  };
+  const updateSlideColumn = (slideIdx, colIdx, field, value) => {
+    setSlides(prev => prev.map((sl, i) => {
+      if (i !== slideIdx) return sl;
+      const columns = [...(sl.columns || [])];
+      if (field === "title") {
+        columns[colIdx] = { ...columns[colIdx], title: value };
+      } else if (field === "items") {
+        columns[colIdx] = { ...columns[colIdx], items: value };
+      }
+      return { ...sl, columns };
+    }));
+  };
+  const updateSlideChartData = (slideIdx, dataIdx, field, value) => {
+    setSlides(prev => prev.map((sl, i) => {
+      if (i !== slideIdx) return sl;
+      const chartData = [...(sl.chartData || [])];
+      chartData[dataIdx] = { ...chartData[dataIdx], [field]: field === "value" ? (Number(value) || 0) : value };
+      return { ...sl, chartData };
+    }));
+  };
 
   /* ── Template Upload Handlers ── */
   const handleTemplateUpload = async (file) => {
@@ -472,6 +522,42 @@ export default function CreatePptx({ setView }) {
     setChatInput("");
     setGenerating(true);
 
+    // ── Per-slide editing mode: when slides already generated, update only current slide ──
+    if (generated && slides.length > 0) {
+      const targetSlide = slides[curSlide];
+      const slideJson = JSON.stringify(targetSlide, null, 2);
+      const editPrompt = [
+        { role: "user", content: `以下のスライド(ID: ${targetSlide.id}, ${targetSlide.heading || targetSlide.title})を修正してください。\n\n現在のスライドデータ:\n${slideJson}\n\nユーザーの修正指示: ${text}${refContext}\n\nこのスライドのみを修正し、同じJSON構造で1枚だけ返してください。slidesの配列に1要素だけ入れて返してください。` }
+      ];
+
+      try {
+        const res = await fetch("/api/generate-slides", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: editPrompt, mode: "single" })
+        });
+        const data = await res.json();
+
+        if (data.error) {
+          setChatMessages(prev => [...prev, { role: "assistant", content: "エラー: " + data.error }]);
+        } else if (data.slides && data.slides.length > 0) {
+          const updatedSlide = { ...data.slides[0], id: targetSlide.id, layoutVariant: targetSlide.layoutVariant };
+          setSlides(prev => prev.map((sl, idx) => idx === curSlide ? updatedSlide : sl));
+          setChatMessages(prev => [...prev, {
+            role: "assistant",
+            content: `スライド${targetSlide.id}「${updatedSlide.heading || updatedSlide.title}」を更新しました。`
+          }]);
+        } else if (data.rawText) {
+          setChatMessages(prev => [...prev, { role: "assistant", content: data.rawText }]);
+        }
+      } catch (err) {
+        setChatMessages(prev => [...prev, { role: "assistant", content: "更新エラー: " + err.message }]);
+      }
+      setGenerating(false);
+      return;
+    }
+
+    // ── Full generation mode (first time) ──
     // Build messages for API - inject ref context into first user message
     const apiMessages = newMessages.map((m, i) => {
       if (i === 0 && m.role === "user" && refContext) {
@@ -498,7 +584,7 @@ export default function CreatePptx({ setView }) {
         const summary = data.summary || `${data.slides.length}枚のスライドを生成しました。`;
         setChatMessages(prev => [...prev, {
           role: "assistant",
-          content: `${summary}\n\n構成パネルで各スライドの本文を確認してください。\n修正はチャットで指示できます。\n内容OKなら「PPTプレビュー」で確認できます。`
+          content: `${summary}\n\n構成パネルで各スライドの内容を直接編集できます。\nスライドを選択してチャットすると、そのスライドだけ更新できます。\n内容OKなら「PPTプレビュー」で確認→編集もできます。`
         }]);
       } else if (data.rawText) {
         setChatMessages(prev => [...prev, { role: "assistant", content: data.rawText }]);
@@ -928,9 +1014,15 @@ export default function CreatePptx({ setView }) {
           <div style={{
             padding: "12px 16px",
             borderBottom: `1px solid ${V.border}`,
-            fontSize: "12px", fontWeight: 600, color: V.t3
+            fontSize: "12px", fontWeight: 600, color: V.t3,
+            display: "flex", justifyContent: "space-between", alignItems: "center"
           }}>
-            💬 チャット
+            <span>💬 チャット</span>
+            {generated && (
+              <span style={{ fontSize:"10px", padding:"2px 8px", borderRadius:"10px", background:`${V.accent}12`, color:V.accent, fontWeight:600 }}>
+                スライド{slides[curSlide]?.id || curSlide+1}を編集中
+              </span>
+            )}
           </div>
 
           {/* ── Reference File Upload Area (NotebookLM style) ── */}
@@ -1065,7 +1157,7 @@ export default function CreatePptx({ setView }) {
                   sendChat();
                 }
               }}
-              placeholder="プレゼンの内容を入力..."
+              placeholder={generated ? `スライド${slides[curSlide]?.id || ""}を修正...（例: もっと具体的に）` : "プレゼンの内容を入力..."}
               disabled={generating}
               style={{
                 flex: 1, padding: "8px 12px", borderRadius: "6px",
@@ -1106,35 +1198,40 @@ export default function CreatePptx({ setView }) {
           </div>
 
           <div style={{ flex: 1, overflowY: "auto", padding: "12px" }}>
-            {slides.map((s, i) => (
+            {slides.map((s, i) => {
+              const isSelected = curSlide === i;
+              const inputStyle = { width:"100%", padding:"4px 8px", borderRadius:"4px", border:`1px solid ${V.border}`, fontSize:"12px", background:V.white, color:V.t1, boxSizing:"border-box" };
+              const textareaStyle = { ...inputStyle, minHeight:"60px", resize:"vertical", lineHeight:1.6, fontFamily:"inherit" };
+              const labelStyle = { fontSize:"10px", fontWeight:600, color:V.t3, marginBottom:"2px", marginTop:"8px", display:"block" };
+
+              return (
               <div
                 key={s.id}
                 onClick={() => { setCurSlide(i); if (previewing) setPreviewing(true); }}
                 style={{
                   padding: "14px", borderRadius: "6px",
-                  background: curSlide === i ? `${preset.accent}10` : V.main,
+                  background: isSelected ? `${preset.accent}08` : V.main,
                   cursor: "pointer", marginBottom: "10px",
                   fontSize: "12px",
-                  border: `1px solid ${curSlide === i ? preset.accent : V.border}`,
+                  border: `1px solid ${isSelected ? preset.accent : V.border}`,
                   transition: "all 0.2s"
                 }}
               >
+                {/* Header row: ID + heading + layout picker */}
                 <div style={{
                   display: "flex", justifyContent: "space-between", alignItems: "center",
-                  marginBottom: "6px"
+                  marginBottom: isSelected ? "8px" : "4px"
                 }}>
-                  <span style={{ fontWeight: 700, color: V.t1 }}>
-                    {s.id}. {s.heading || s.title}
+                  <span style={{ fontWeight: 700, color: V.t1, fontSize:"12px" }}>
+                    {s.id}. {!isSelected ? (s.heading || s.title) : ""}
                   </span>
-                  {/* Layout variant picker */}
                   <select
                     value={s.layoutVariant || normalizeLayoutId(s.layout)}
                     onClick={e => e.stopPropagation()}
                     onChange={e => {
                       e.stopPropagation();
-                      const newVariant = e.target.value;
                       setSlides(prev => prev.map((sl, idx) =>
-                        idx === i ? { ...sl, layoutVariant: newVariant } : sl
+                        idx === i ? { ...sl, layoutVariant: e.target.value } : sl
                       ));
                     }}
                     style={{
@@ -1151,52 +1248,214 @@ export default function CreatePptx({ setView }) {
                     ))}
                   </select>
                 </div>
-                {s.sub && (
-                  <div style={{ fontSize: "12px", color: V.t2, marginBottom: "6px", fontWeight: 500 }}>
-                    {s.sub}
+
+                {/* ── Collapsed view (not selected) ── */}
+                {!isSelected && (
+                  <>
+                    {s.sub && <div style={{ fontSize:"11px", color:V.t2, marginBottom:"3px" }}>{s.sub}</div>}
+                    {s.body && <div style={{ fontSize:"11px", color:V.t3, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.body.slice(0,60)}{s.body.length>60?"...":""}</div>}
+                    {s.items && s.items.length > 0 && <div style={{ fontSize:"10px", color:V.t4, marginTop:"2px" }}>📋 {s.items.length}項目</div>}
+                    {s.stats && s.stats.length > 0 && <div style={{ fontSize:"10px", color:V.t4, marginTop:"2px" }}>📊 {s.stats.map(st=>st.value).join(" / ")}</div>}
+                    {s.steps && s.steps.length > 0 && <div style={{ fontSize:"10px", color:V.t4, marginTop:"2px" }}>🔄 {s.steps.length}ステップ</div>}
+                    {s.columns && s.columns.length > 0 && <div style={{ fontSize:"10px", color:V.t4, marginTop:"2px" }}>📐 {s.columns.map(c=>c.title).join(" vs ")}</div>}
+                    {s.chartData && s.chartData.length > 0 && <div style={{ fontSize:"10px", color:V.t4, marginTop:"2px" }}>📈 {s.chartType || "bar"} ({s.chartData.length}項目)</div>}
+                  </>
+                )}
+
+                {/* ── Expanded editable view (selected) ── */}
+                {isSelected && (
+                  <div onClick={e => e.stopPropagation()} style={{ display:"flex", flexDirection:"column" }}>
+                    {/* Heading */}
+                    <span style={labelStyle}>見出し</span>
+                    <input
+                      value={s.heading || s.title || ""}
+                      onChange={e => updateSlide(i, { heading: e.target.value, title: e.target.value })}
+                      style={{ ...inputStyle, fontWeight:700 }}
+                    />
+
+                    {/* Subtitle */}
+                    <span style={labelStyle}>サブタイトル</span>
+                    <input
+                      value={s.sub || ""}
+                      onChange={e => updateSlide(i, { sub: e.target.value })}
+                      style={inputStyle}
+                      placeholder="サブタイトル（省略可）"
+                    />
+
+                    {/* Body (for text/content layouts) */}
+                    {(s.body !== undefined || s.layout === "content" || s.layout === "cover" || s.layout === "closing") && (
+                      <>
+                        <span style={labelStyle}>本文</span>
+                        <textarea
+                          value={s.body || ""}
+                          onChange={e => updateSlide(i, { body: e.target.value })}
+                          style={textareaStyle}
+                          placeholder="本文テキスト"
+                        />
+                      </>
+                    )}
+
+                    {/* Items (bullets) */}
+                    {s.items && s.items.length > 0 && (
+                      <>
+                        <span style={labelStyle}>📋 項目 ({s.items.length})</span>
+                        {s.items.map((item, j) => (
+                          <div key={j} style={{ display:"flex", gap:"4px", marginBottom:"4px", alignItems:"center" }}>
+                            <input
+                              value={item.icon || "▶"}
+                              onChange={e => updateSlideItem(i, j, "icon", e.target.value)}
+                              style={{ ...inputStyle, width:"32px", textAlign:"center", padding:"4px 2px", flexShrink:0 }}
+                            />
+                            <input
+                              value={item.label || ""}
+                              onChange={e => updateSlideItem(i, j, "label", e.target.value)}
+                              style={{ ...inputStyle, flex:1, fontWeight:600 }}
+                              placeholder="項目名"
+                            />
+                            <input
+                              value={item.desc || ""}
+                              onChange={e => updateSlideItem(i, j, "desc", e.target.value)}
+                              style={{ ...inputStyle, flex:2 }}
+                              placeholder="説明"
+                            />
+                          </div>
+                        ))}
+                      </>
+                    )}
+
+                    {/* Stats */}
+                    {s.stats && s.stats.length > 0 && (
+                      <>
+                        <span style={labelStyle}>📊 数値・KPI ({s.stats.length})</span>
+                        {s.stats.map((st, j) => (
+                          <div key={j} style={{ display:"flex", gap:"4px", marginBottom:"4px", alignItems:"center" }}>
+                            <input
+                              value={st.value || ""}
+                              onChange={e => updateSlideStat(i, j, "value", e.target.value)}
+                              style={{ ...inputStyle, width:"70px", fontWeight:800, color:preset.accent, flexShrink:0 }}
+                            />
+                            <input
+                              value={st.label || ""}
+                              onChange={e => updateSlideStat(i, j, "label", e.target.value)}
+                              style={{ ...inputStyle, flex:1, fontWeight:600 }}
+                              placeholder="指標名"
+                            />
+                            <input
+                              value={st.sub || ""}
+                              onChange={e => updateSlideStat(i, j, "sub", e.target.value)}
+                              style={{ ...inputStyle, flex:1 }}
+                              placeholder="補足"
+                            />
+                          </div>
+                        ))}
+                      </>
+                    )}
+
+                    {/* Steps (timeline) */}
+                    {s.steps && s.steps.length > 0 && (
+                      <>
+                        <span style={labelStyle}>🔄 ステップ ({s.steps.length})</span>
+                        {s.steps.map((step, j) => (
+                          <div key={j} style={{ display:"flex", gap:"4px", marginBottom:"4px", alignItems:"center" }}>
+                            <span style={{ fontSize:"10px", fontWeight:800, color:preset.accent, width:"18px", textAlign:"center", flexShrink:0 }}>{j+1}</span>
+                            <input
+                              value={step.label || ""}
+                              onChange={e => updateSlideStep(i, j, "label", e.target.value)}
+                              style={{ ...inputStyle, flex:1, fontWeight:600 }}
+                              placeholder="ステップ名"
+                            />
+                            <input
+                              value={step.desc || ""}
+                              onChange={e => updateSlideStep(i, j, "desc", e.target.value)}
+                              style={{ ...inputStyle, flex:2 }}
+                              placeholder="説明"
+                            />
+                          </div>
+                        ))}
+                      </>
+                    )}
+
+                    {/* Columns (comparison) */}
+                    {s.columns && s.columns.length > 0 && (
+                      <>
+                        <span style={labelStyle}>📐 比較列 ({s.columns.length})</span>
+                        {s.columns.map((col, j) => (
+                          <div key={j} style={{ marginBottom:"6px", padding:"6px", background:`${preset.accent}05`, borderRadius:"4px", border:`1px solid ${V.border}` }}>
+                            <input
+                              value={col.title || ""}
+                              onChange={e => updateSlideColumn(i, j, "title", e.target.value)}
+                              style={{ ...inputStyle, fontWeight:700, marginBottom:"3px" }}
+                              placeholder="列タイトル"
+                            />
+                            <textarea
+                              value={(col.items || []).join("\n")}
+                              onChange={e => updateSlideColumn(i, j, "items", e.target.value.split("\n"))}
+                              style={{ ...textareaStyle, minHeight:"36px", fontSize:"11px" }}
+                              placeholder="項目（1行1項目）"
+                            />
+                          </div>
+                        ))}
+                      </>
+                    )}
+
+                    {/* Chart Data */}
+                    {s.chartData && s.chartData.length > 0 && (
+                      <>
+                        <span style={labelStyle}>📈 グラフデータ ({s.chartData.length})</span>
+                        {s.chartData.map((d, j) => (
+                          <div key={j} style={{ display:"flex", gap:"4px", marginBottom:"4px", alignItems:"center" }}>
+                            <input
+                              value={d.label || ""}
+                              onChange={e => updateSlideChartData(i, j, "label", e.target.value)}
+                              style={{ ...inputStyle, flex:2 }}
+                              placeholder="ラベル"
+                            />
+                            <input
+                              type="number"
+                              value={d.value || 0}
+                              onChange={e => updateSlideChartData(i, j, "value", e.target.value)}
+                              style={{ ...inputStyle, width:"60px", fontWeight:700, flexShrink:0 }}
+                            />
+                          </div>
+                        ))}
+                      </>
+                    )}
+
+                    {/* Note */}
+                    <span style={labelStyle}>💡 備考</span>
+                    <input
+                      value={s.note || ""}
+                      onChange={e => updateSlide(i, { note: e.target.value })}
+                      style={inputStyle}
+                      placeholder="備考やフッター（省略可）"
+                    />
+
+                    {/* Per-slide chat hint */}
+                    {generated && (
+                      <div style={{ marginTop:"8px", padding:"6px 8px", background:`${V.accent}08`, borderRadius:"4px", fontSize:"10px", color:V.accent, lineHeight:1.4 }}>
+                        💬 チャットで指示するとこのスライドだけ更新されます
+                      </div>
+                    )}
                   </div>
                 )}
-                {s.body && (
-                  <div style={{
-                    fontSize: "12px", lineHeight: 1.6, color: V.t2,
-                    whiteSpace: "pre-wrap",
-                    borderTop: `1px solid ${V.border}`,
-                    paddingTop: "8px", marginTop: "4px"
-                  }}>
-                    {s.body}
-                  </div>
-                )}
-                {s.note && (
-                  <div style={{ fontSize: "11px", color: V.t4, marginTop: "6px", fontStyle: "italic" }}>
-                    💡 {s.note}
-                  </div>
-                )}
-                {s.dataSrc && s.dataSrc.length > 0 && (
-                  <div style={{ fontSize: "10px", color: V.t4, marginTop: "4px" }}>
-                    📊 {s.dataSrc.join(", ")}
-                  </div>
-                )}
-                {/* Mini color preview strip for template/preset */}
+
+                {/* Color strip */}
                 <div style={{
                   display: "flex", gap: "3px", marginTop: "8px",
                   paddingTop: "6px", borderTop: `1px solid ${V.border}`
                 }}>
                   {(s.layout === "cover" || s.layout === "closing") ? (
-                    <div style={{
-                      flex: 1, height: "4px", borderRadius: "2px",
-                      background: preset.coverBg
-                    }} />
+                    <div style={{ flex: 1, height: "4px", borderRadius: "2px", background: preset.coverBg }} />
                   ) : (
                     <>
-                      <div style={{ flex: 2, height: "4px", borderRadius: "2px",
-                        background: preset.contentBg, border: `1px solid ${V.border}` }} />
-                      <div style={{ flex: 1, height: "4px", borderRadius: "2px",
-                        background: preset.accent }} />
+                      <div style={{ flex: 2, height: "4px", borderRadius: "2px", background: preset.contentBg, border: `1px solid ${V.border}` }} />
+                      <div style={{ flex: 1, height: "4px", borderRadius: "2px", background: preset.accent }} />
                     </>
                   )}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -1343,31 +1602,56 @@ export default function CreatePptx({ setView }) {
                             marginBottom: "16px"
                           }} />
                         )}
-                        <div style={{
-                          fontSize: preset.headingSizeCover, fontWeight: 800,
-                          textAlign: preset.coverAlign, lineHeight: 1.3, marginBottom: "20px",
-                          fontFamily: tmHeadingFont,
-                          color: getPreviewTextColor(slide),
-                          width: "100%"
-                        }}>
+                        <div
+                          contentEditable
+                          suppressContentEditableWarning
+                          onBlur={e => updateSlide(curSlide, { heading: e.currentTarget.textContent, title: e.currentTarget.textContent })}
+                          style={{
+                            fontSize: preset.headingSizeCover, fontWeight: 800,
+                            textAlign: preset.coverAlign, lineHeight: 1.3, marginBottom: "20px",
+                            fontFamily: tmHeadingFont,
+                            color: getPreviewTextColor(slide),
+                            width: "100%",
+                            outline: "none", cursor: "text",
+                            borderRadius: "4px", transition: "box-shadow 0.2s",
+                          }}
+                          onFocus={e => e.currentTarget.style.boxShadow = `0 0 0 2px ${tmAccent}40`}
+                          onBlurCapture={e => e.currentTarget.style.boxShadow = "none"}
+                        >
                           {slide.heading || slide.title}
                         </div>
-                        {slide.sub && (
-                          <div style={{
+                        <div
+                          contentEditable
+                          suppressContentEditableWarning
+                          onBlur={e => updateSlide(curSlide, { sub: e.currentTarget.textContent })}
+                          style={{
                             fontSize: "22px", textAlign: preset.coverAlign,
                             color: getPreviewSubColor(slide),
                             fontFamily: tmBodyFont,
-                            width: "100%"
-                          }}>
-                            {slide.sub}
-                          </div>
-                        )}
+                            width: "100%",
+                            outline: "none", cursor: "text", minHeight: "28px",
+                            borderRadius: "4px", transition: "box-shadow 0.2s",
+                          }}
+                          onFocus={e => e.currentTarget.style.boxShadow = `0 0 0 2px ${tmAccent}40`}
+                          onBlurCapture={e => e.currentTarget.style.boxShadow = "none"}
+                        >
+                          {slide.sub || ""}
+                        </div>
                         {slide.note && (
-                          <div style={{
-                            position: "absolute", bottom: "24px", right: "32px",
-                            fontSize: "16px", opacity: 0.7,
-                            fontFamily: tmBodyFont
-                          }}>
+                          <div
+                            contentEditable
+                            suppressContentEditableWarning
+                            onBlur={e => updateSlide(curSlide, { note: e.currentTarget.textContent })}
+                            style={{
+                              position: "absolute", bottom: "24px", right: "32px",
+                              fontSize: "16px", opacity: 0.7,
+                              fontFamily: tmBodyFont,
+                              outline: "none", cursor: "text",
+                              borderRadius: "4px", transition: "box-shadow 0.2s",
+                            }}
+                            onFocus={e => e.currentTarget.style.boxShadow = `0 0 0 2px ${tmAccent}40`}
+                            onBlurCapture={e => e.currentTarget.style.boxShadow = "none"}
+                          >
                             {slide.note}
                           </div>
                         )}
@@ -1382,23 +1666,41 @@ export default function CreatePptx({ setView }) {
                           borderRadius: "2px",
                           marginBottom: "12px"
                         }} />
-                        <div style={{
-                          fontSize: preset.headingSizeContent, fontWeight: 800, marginBottom: "8px",
-                          fontFamily: tmHeadingFont,
-                          color: getPreviewTextColor(slide),
-                          width: "100%"
-                        }}>
+                        <div
+                          contentEditable
+                          suppressContentEditableWarning
+                          onBlur={e => updateSlide(curSlide, { heading: e.currentTarget.textContent, title: e.currentTarget.textContent })}
+                          style={{
+                            fontSize: preset.headingSizeContent, fontWeight: 800, marginBottom: "8px",
+                            fontFamily: tmHeadingFont,
+                            color: getPreviewTextColor(slide),
+                            width: "100%",
+                            outline: "none", cursor: "text",
+                            borderRadius: "4px", transition: "box-shadow 0.2s",
+                          }}
+                          onFocus={e => e.currentTarget.style.boxShadow = `0 0 0 2px ${tmAccent}40`}
+                          onBlurCapture={e => e.currentTarget.style.boxShadow = "none"}
+                        >
                           {slide.heading || slide.title}
                         </div>
-                        {slide.sub && (
-                          <div style={{
-                            fontSize: "18px",
-                            color: getPreviewSubColor(slide),
-                            marginBottom: "16px", fontWeight: 500,
-                            fontFamily: tmBodyFont,
-                            width: "100%"
-                          }}>
-                            {slide.sub}
+                        {slide.sub !== undefined && (
+                          <div
+                            contentEditable
+                            suppressContentEditableWarning
+                            onBlur={e => updateSlide(curSlide, { sub: e.currentTarget.textContent })}
+                            style={{
+                              fontSize: "18px",
+                              color: getPreviewSubColor(slide),
+                              marginBottom: "16px", fontWeight: 500,
+                              fontFamily: tmBodyFont,
+                              width: "100%",
+                              outline: "none", cursor: "text", minHeight: "22px",
+                              borderRadius: "4px", transition: "box-shadow 0.2s",
+                            }}
+                            onFocus={e => e.currentTarget.style.boxShadow = `0 0 0 2px ${tmAccent}40`}
+                            onBlurCapture={e => e.currentTarget.style.boxShadow = "none"}
+                          >
+                            {slide.sub || ""}
                           </div>
                         )}
 
