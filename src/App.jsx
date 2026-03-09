@@ -24,6 +24,16 @@ export default function App() {
   const [sbCollapsed, setSbCollapsed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
+  // Auto-collapse sidebar on creation sub-pages (3rd level)
+  const prevViewRef = useRef(view);
+  useEffect(() => {
+    const creationPages = ["create-pptx", "create-xlsx", "create-docx"];
+    if (creationPages.includes(view) && !creationPages.includes(prevViewRef.current)) {
+      setSbCollapsed(true);
+    }
+    prevViewRef.current = view;
+  }, [view]);
+
   const send = async (text) => {
     if (!text.trim()) return;
     const userMsg = { role: "user", content: text };

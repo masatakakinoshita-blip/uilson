@@ -59,13 +59,15 @@ export default function Sidebar({
     >
       {/* Logo Area */}
       <div
+        onClick={sbCollapsed ? () => setSbCollapsed(false) : undefined}
         style={{
           padding: sbCollapsed ? "16px 8px" : "16px 20px",
           borderBottom: `1px solid ${V.border}`,
           display: "flex",
           alignItems: "center",
           justifyContent: sbCollapsed ? "center" : "space-between",
-          gap: "12px"
+          gap: "12px",
+          cursor: sbCollapsed ? "pointer" : "default"
         }}
       >
         {/* Logo Icon */}
@@ -108,26 +110,54 @@ export default function Sidebar({
           </div>
         )}
 
-        {/* Collapse Toggle */}
+        {/* Collapse Toggle - only show when expanded */}
+        {!sbCollapsed && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setSbCollapsed(true); }}
+            style={{
+              width: "32px",
+              height: "32px",
+              border: "none",
+              backgroundColor: "transparent",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: V.t3,
+              fontSize: "18px",
+              padding: 0
+            }}
+          >
+            ←
+          </button>
+        )}
+      </div>
+
+      {/* Expand button when collapsed - below logo */}
+      {sbCollapsed && (
         <button
-          onClick={() => setSbCollapsed(!sbCollapsed)}
+          onClick={() => setSbCollapsed(false)}
           style={{
-            width: "32px",
-            height: "32px",
+            width: "100%",
+            padding: "6px 0",
             border: "none",
-            backgroundColor: "transparent",
+            borderBottom: `1px solid ${V.border}`,
+            backgroundColor: `${V.accent}06`,
             cursor: "pointer",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            color: V.t3,
-            fontSize: "18px",
-            padding: 0
+            color: V.accent,
+            fontSize: "14px",
+            fontWeight: 600,
+            transition: "background 0.2s"
           }}
+          onMouseEnter={e => e.currentTarget.style.backgroundColor = `${V.accent}15`}
+          onMouseLeave={e => e.currentTarget.style.backgroundColor = `${V.accent}06`}
         >
-          {sbCollapsed ? "→" : "←"}
+          →
         </button>
-      </div>
+      )}
 
       {/* Navigation Items */}
       <div style={{ flex: 1, padding: sbCollapsed ? "12px 4px" : "12px 8px", overflow: "hidden" }}>

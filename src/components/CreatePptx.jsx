@@ -28,7 +28,10 @@ export default function CreatePptx({ setView }) {
   const [presetId, setPresetId] = useState("default");
   const [showPresetPicker, setShowPresetPicker] = useState(false);
   const [refFiles, setRefFiles] = useState([]); // {name, content, active, type}
+  const [fullscreen, setFullscreen] = useState(false); // fullscreen preview mode
   const [editingField, setEditingField] = useState(null); // track which field is being edited in preview
+  const [modifiedSlides, setModifiedSlides] = useState(new Set()); // track which slides have been edited
+  const lastPreviewSnapshot = useRef(null); // snapshot of slides at last preview open
   const chatEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const refFileInputRef = useRef(null);
@@ -39,10 +42,13 @@ export default function CreatePptx({ setView }) {
   }, [chatMessages]);
 
   /* ── Slide update helper ── */
+  const markModified = (idx) => setModifiedSlides(prev => new Set(prev).add(idx));
   const updateSlide = (idx, updates) => {
+    markModified(idx);
     setSlides(prev => prev.map((sl, i) => i === idx ? { ...sl, ...updates } : sl));
   };
   const updateSlideItem = (slideIdx, itemIdx, field, value) => {
+    markModified(slideIdx);
     setSlides(prev => prev.map((sl, i) => {
       if (i !== slideIdx) return sl;
       const items = [...(sl.items || [])];
@@ -51,6 +57,7 @@ export default function CreatePptx({ setView }) {
     }));
   };
   const updateSlideStat = (slideIdx, statIdx, field, value) => {
+    markModified(slideIdx);
     setSlides(prev => prev.map((sl, i) => {
       if (i !== slideIdx) return sl;
       const stats = [...(sl.stats || [])];
@@ -59,6 +66,7 @@ export default function CreatePptx({ setView }) {
     }));
   };
   const updateSlideStep = (slideIdx, stepIdx, field, value) => {
+    markModified(slideIdx);
     setSlides(prev => prev.map((sl, i) => {
       if (i !== slideIdx) return sl;
       const steps = [...(sl.steps || [])];
@@ -67,6 +75,7 @@ export default function CreatePptx({ setView }) {
     }));
   };
   const updateSlideColumn = (slideIdx, colIdx, field, value) => {
+    markModified(slideIdx);
     setSlides(prev => prev.map((sl, i) => {
       if (i !== slideIdx) return sl;
       const columns = [...(sl.columns || [])];
@@ -79,6 +88,7 @@ export default function CreatePptx({ setView }) {
     }));
   };
   const updateSlideChartData = (slideIdx, dataIdx, field, value) => {
+    markModified(slideIdx);
     setSlides(prev => prev.map((sl, i) => {
       if (i !== slideIdx) return sl;
       const chartData = [...(sl.chartData || [])];
@@ -954,7 +964,15 @@ export default function CreatePptx({ setView }) {
         </div>
         <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
           <button
-            onClick={() => setPreviewing(true)}
+            onClick={() => {
+              // Jump to first modified slide if any, then clear modified set
+              if (modifiedSlides.size > 0) {
+                const firstMod = Math.min(...modifiedSlides);
+                setCurSlide(firstMod);
+                setModifiedSlides(new Set());
+              }
+              setPreviewing(true);
+            }}
             disabled={!generated}
             style={{
               padding: "8px 16px", borderRadius: 6,
@@ -1230,6 +1248,7 @@ export default function CreatePptx({ setView }) {
                     onClick={e => e.stopPropagation()}
                     onChange={e => {
                       e.stopPropagation();
+                      markModified(i);
                       setSlides(prev => prev.map((sl, idx) =>
                         idx === i ? { ...sl, layoutVariant: e.target.value } : sl
                       ));
@@ -1474,30 +1493,21 @@ export default function CreatePptx({ setView }) {
           }}>
             <span>👁️ プレビュー</span>
             {previewing && (
-              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                <button
-                  onClick={() => setCurSlide(Math.max(0, curSlide - 1))}
-                  disabled={curSlide === 0}
-                  style={{
-                    padding: "3px 7px", borderRadius: "4px",
-                    border: `1px solid ${V.border}`, background: V.white,
-                    cursor: curSlide === 0 ? "default" : "pointer",
-                    fontSize: "11px", opacity: curSlide === 0 ? 0.3 : 1
-                  }}
-                >◀</button>
-                <span style={{ fontSize: "11px", color: V.t4 }}>
+              <div style={{ display:"flex", gap:"8px", alignItems:"center" }}>
+                <span style={{ fontSize: "11px", color: V.t4, fontWeight: 500 }}>
                   {curSlide + 1} / {slides.length}
                 </span>
                 <button
-                  onClick={() => setCurSlide(Math.min(slides.length - 1, curSlide + 1))}
-                  disabled={curSlide === slides.length - 1}
+                  onClick={() => setFullscreen(true)}
                   style={{
-                    padding: "3px 7px", borderRadius: "4px",
-                    border: `1px solid ${V.border}`, background: V.white,
-                    cursor: curSlide === slides.length - 1 ? "default" : "pointer",
-                    fontSize: "11px", opacity: curSlide === slides.length - 1 ? 0.3 : 1
+                    padding:"3px 8px", borderRadius:"4px",
+                    border:`1px solid ${V.border}`, background:V.white,
+                    cursor:"pointer", fontSize:"11px", color:V.t2, fontWeight:600,
+                    transition:"all 0.2s"
                   }}
-                >▶</button>
+                  onMouseEnter={e => e.currentTarget.style.background = V.main}
+                  onMouseLeave={e => e.currentTarget.style.background = V.white}
+                >⛶ 全画面</button>
               </div>
             )}
           </div>
@@ -1519,8 +1529,42 @@ export default function CreatePptx({ setView }) {
             <>
               <div style={{
                 flex: 1, overflow: "hidden", padding: "12px",
-                display: "flex", alignItems: "center", justifyContent: "center"
+                display: "flex", alignItems: "center", justifyContent: "center",
+                position: "relative"
               }}>
+                {/* Left arrow overlay */}
+                <button
+                  onClick={() => setCurSlide(Math.max(0, curSlide - 1))}
+                  style={{
+                    position: "absolute", left: "4px", top: "50%", transform: "translateY(-50%)",
+                    zIndex: 10, width: "36px", height: "64px", borderRadius: "8px",
+                    border: "none", background: curSlide === 0 ? "rgba(0,0,0,0.08)" : "rgba(0,0,0,0.25)",
+                    color: curSlide === 0 ? "rgba(255,255,255,0.3)" : "#fff",
+                    cursor: curSlide === 0 ? "default" : "pointer",
+                    fontSize: "20px", fontWeight: 700,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    transition: "all 0.2s", backdropFilter: "blur(4px)"
+                  }}
+                  onMouseEnter={e => { if (curSlide > 0) e.currentTarget.style.background = "rgba(0,0,0,0.45)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = curSlide === 0 ? "rgba(0,0,0,0.08)" : "rgba(0,0,0,0.25)"; }}
+                >◀</button>
+                {/* Right arrow overlay */}
+                <button
+                  onClick={() => setCurSlide(Math.min(slides.length - 1, curSlide + 1))}
+                  style={{
+                    position: "absolute", right: "4px", top: "50%", transform: "translateY(-50%)",
+                    zIndex: 10, width: "36px", height: "64px", borderRadius: "8px",
+                    border: "none", background: curSlide === slides.length - 1 ? "rgba(0,0,0,0.08)" : "rgba(0,0,0,0.25)",
+                    color: curSlide === slides.length - 1 ? "rgba(255,255,255,0.3)" : "#fff",
+                    cursor: curSlide === slides.length - 1 ? "default" : "pointer",
+                    fontSize: "20px", fontWeight: 700,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    transition: "all 0.2s", backdropFilter: "blur(4px)"
+                  }}
+                  onMouseEnter={e => { if (curSlide < slides.length - 1) e.currentTarget.style.background = "rgba(0,0,0,0.45)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = curSlide === slides.length - 1 ? "rgba(0,0,0,0.08)" : "rgba(0,0,0,0.25)"; }}
+                >▶</button>
+
                 {/* Outer wrapper maintains aspect ratio and scales the virtual canvas */}
                 <div
                   ref={el => {
@@ -1740,6 +1784,185 @@ export default function CreatePptx({ setView }) {
           )}
         </div>
       </div>
+
+      {/* ═══ Fullscreen Preview Modal ═══ */}
+      {fullscreen && (
+        <div style={{
+          position:"fixed", top:0, left:0, right:0, bottom:0,
+          zIndex:9999, background:"#111",
+          display:"flex", flexDirection:"column",
+          alignItems:"center", justifyContent:"center"
+        }}>
+          {/* Top bar */}
+          <div style={{
+            position:"absolute", top:0, left:0, right:0,
+            display:"flex", justifyContent:"space-between", alignItems:"center",
+            padding:"12px 24px", background:"rgba(0,0,0,0.6)",
+            zIndex:10
+          }}>
+            <span style={{ color:"#fff", fontSize:"14px", fontWeight:600 }}>
+              {slide.heading || slide.title}
+            </span>
+            <div style={{ display:"flex", gap:"12px", alignItems:"center" }}>
+              <span style={{ color:"#fff9", fontSize:"13px" }}>
+                {curSlide + 1} / {slides.length}
+              </span>
+              <button
+                onClick={() => setFullscreen(false)}
+                style={{
+                  padding:"6px 16px", borderRadius:"6px",
+                  border:"1px solid #fff4", background:"rgba(255,255,255,0.1)",
+                  color:"#fff", cursor:"pointer", fontSize:"13px", fontWeight:600,
+                  transition:"all 0.2s"
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.25)"}
+                onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,0.1)"}
+              >
+                ✕ 閉じる
+              </button>
+            </div>
+          </div>
+
+          {/* Left arrow */}
+          <button
+            onClick={() => setCurSlide(Math.max(0, curSlide - 1))}
+            style={{
+              position:"absolute", left:"20px", top:"50%", transform:"translateY(-50%)",
+              zIndex:10, width:"56px", height:"80px", borderRadius:"12px",
+              border:"none", background: curSlide === 0 ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.15)",
+              color: curSlide === 0 ? "#fff3" : "#fff",
+              cursor: curSlide === 0 ? "default" : "pointer",
+              fontSize:"28px", fontWeight:700,
+              display:"flex", alignItems:"center", justifyContent:"center",
+              transition:"all 0.2s"
+            }}
+            onMouseEnter={e => { if (curSlide > 0) e.currentTarget.style.background = "rgba(255,255,255,0.3)"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = curSlide === 0 ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.15)"; }}
+          >◀</button>
+
+          {/* Right arrow */}
+          <button
+            onClick={() => setCurSlide(Math.min(slides.length - 1, curSlide + 1))}
+            style={{
+              position:"absolute", right:"20px", top:"50%", transform:"translateY(-50%)",
+              zIndex:10, width:"56px", height:"80px", borderRadius:"12px",
+              border:"none", background: curSlide === slides.length-1 ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.15)",
+              color: curSlide === slides.length-1 ? "#fff3" : "#fff",
+              cursor: curSlide === slides.length-1 ? "default" : "pointer",
+              fontSize:"28px", fontWeight:700,
+              display:"flex", alignItems:"center", justifyContent:"center",
+              transition:"all 0.2s"
+            }}
+            onMouseEnter={e => { if (curSlide < slides.length-1) e.currentTarget.style.background = "rgba(255,255,255,0.3)"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = curSlide === slides.length-1 ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.15)"; }}
+          >▶</button>
+
+          {/* Fullscreen slide canvas */}
+          <div
+            ref={el => {
+              if (!el) return;
+              const ro = new ResizeObserver(() => {
+                const W = el.clientWidth, H = el.clientHeight;
+                const inner = el.firstChild;
+                if (!inner) return;
+                const scale = Math.min(W / 960, H / 540);
+                inner.style.transform = `scale(${scale})`;
+              });
+              ro.observe(el);
+            }}
+            style={{
+              width: "calc(100% - 180px)", height: "calc(100% - 100px)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              overflow: "hidden"
+            }}
+          >
+            <div style={{
+              width: "960px", height: "540px",
+              flexShrink: 0,
+              borderRadius: "8px",
+              ...getPreviewBg(slide),
+              overflow: "hidden",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+              position: "relative",
+              transformOrigin: "center center"
+            }}>
+              {/* Template visual elements layer */}
+              {templateFile && templateInfo && (() => {
+                const isCov = slide.layout === "cover" || slide.layout === "closing";
+                const elms = isCov ? (templateInfo.coverElements || []) : (templateInfo.contentElements || []);
+                return elms.map((el, idx) => {
+                  if (el.type === "rect") return (
+                    <div key={`fte${idx}`} style={{
+                      position:"absolute", left:`${el.x}%`, top:`${el.y}%`,
+                      width:`${el.w}%`, height:`${el.h}%`,
+                      background: el.fill, opacity: el.opacity ?? 1,
+                      pointerEvents:"none", zIndex: 1
+                    }} />
+                  );
+                  if (el.type === "img") return (
+                    <img key={`fte${idx}`} src={el.src} alt="" style={{
+                      position:"absolute", left:`${el.x}%`, top:`${el.y}%`,
+                      width:`${el.w}%`, height:`${el.h}%`,
+                      objectFit:"contain", pointerEvents:"none", zIndex: 1
+                    }} />
+                  );
+                  return null;
+                });
+              })()}
+
+              {/* Text content layer */}
+              <div style={{
+                position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+                zIndex: 2,
+                display: "flex", flexDirection: "column",
+                alignItems: (slide.layout === "cover" || slide.layout === "closing")
+                  ? (preset.coverAlign === "left" ? "flex-start" : "center")
+                  : (preset.contentAlign === "left" ? "flex-start" : "center"),
+                justifyContent: (slide.layout === "cover" || slide.layout === "closing") ? "center" : "flex-start",
+                padding: "48px",
+                color: getPreviewTextColor(slide)
+              }}>
+              {(slide.layout === "cover" || slide.layout === "closing") ? (
+                <>
+                  {preset.coverAlign === "left" && (
+                    <div style={{ width: preset.accentBarWidth, height: preset.accentBarHeight, background: preset.accent, borderRadius: "2px", marginBottom: "16px" }} />
+                  )}
+                  <div style={{ fontSize: preset.headingSizeCover, fontWeight: 800, textAlign: preset.coverAlign, lineHeight: 1.3, marginBottom: "20px", fontFamily: tmHeadingFont, color: getPreviewTextColor(slide), width: "100%" }}>
+                    {slide.heading || slide.title}
+                  </div>
+                  {slide.sub && <div style={{ fontSize: "22px", textAlign: preset.coverAlign, color: getPreviewSubColor(slide), fontFamily: tmBodyFont, width: "100%" }}>{slide.sub}</div>}
+                  {slide.note && <div style={{ position: "absolute", bottom: "24px", right: "32px", fontSize: "16px", opacity: 0.7, fontFamily: tmBodyFont }}>{slide.note}</div>}
+                </>
+              ) : (
+                <>
+                  <div style={{ width: preset.accentBarWidth === "100%" ? "100%" : preset.accentBarWidth, height: preset.accentBarHeight, background: tmAccent, borderRadius: "2px", marginBottom: "12px" }} />
+                  <div style={{ fontSize: preset.headingSizeContent, fontWeight: 800, marginBottom: "8px", fontFamily: tmHeadingFont, color: getPreviewTextColor(slide), width: "100%" }}>
+                    {slide.heading || slide.title}
+                  </div>
+                  {slide.sub && <div style={{ fontSize: "18px", color: getPreviewSubColor(slide), marginBottom: "16px", fontWeight: 500, fontFamily: tmBodyFont, width: "100%" }}>{slide.sub}</div>}
+                  {renderLayoutContent(slide, slide.layoutVariant || normalizeLayoutId(slide.layout), {
+                    accent: tmAccent, textColor: getPreviewTextColor(slide), subColor: getPreviewSubColor(slide),
+                    headingFont: tmHeadingFont, bodyFont: tmBodyFont, V
+                  })}
+                </>
+              )}
+              </div>
+            </div>
+          </div>
+
+          {/* Keyboard navigation */}
+          <div
+            tabIndex={0}
+            ref={el => { if (el) el.focus(); }}
+            onKeyDown={e => {
+              if (e.key === "Escape") setFullscreen(false);
+              if (e.key === "ArrowLeft") setCurSlide(Math.max(0, curSlide - 1));
+              if (e.key === "ArrowRight") setCurSlide(Math.min(slides.length - 1, curSlide + 1));
+            }}
+            style={{ position:"absolute", width:0, height:0, overflow:"hidden" }}
+          />
+        </div>
+      )}
     </div>
   );
 }
