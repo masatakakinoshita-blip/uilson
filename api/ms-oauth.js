@@ -12,7 +12,7 @@ export default async function handler(req, res) {
       code,
       redirect_uri: redirect_uri || "https://uilson.vercel.app",
       grant_type: "authorization_code",
-      scope: "Mail.Read Calendars.ReadWrite User.Read",
+      scope: "Mail.Read Calendars.ReadWrite User.Read Sites.Read.All Files.Read.All Chat.Read Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Read.All",
     });
 
     const resp = await fetch(
