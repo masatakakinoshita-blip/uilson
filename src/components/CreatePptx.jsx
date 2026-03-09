@@ -24,8 +24,10 @@ export default function CreatePptx({ setView }) {
   const [dragOver, setDragOver] = useState(false);
   const [presetId, setPresetId] = useState("default");
   const [showPresetPicker, setShowPresetPicker] = useState(false);
+  const [refFiles, setRefFiles] = useState([]); // {name, content, active, type}
   const chatEndRef = useRef(null);
   const fileInputRef = useRef(null);
+  const refFileInputRef = useRef(null);
   const templateBufferRef = useRef(null);
 
   useEffect(() => {
@@ -411,21 +413,75 @@ export default function CreatePptx({ setView }) {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  /* ── Reference File Handlers ── */
+  const handleRefFileUpload = async (files) => {
+    const newFiles = [];
+    for (const file of files) {
+      const ext = file.name.split(".").pop().toLowerCase();
+      let content = "";
+      try {
+        if (["txt","md","csv","tsv","json","xml","html","css","js","py","yaml","yml","log"].includes(ext)) {
+          content = await file.text();
+          if (content.length > 15000) content = content.slice(0, 15000) + "\n...(以下省略)";
+        } else if (["pdf"].includes(ext)) {
+          content = `[PDFファイル: ${file.name} (${(file.size/1024).toFixed(0)}KB)]`;
+        } else if (ext === "pptx") {
+          // Also handle as template
+          handleTemplateUpload(file);
+          content = `[PPTXテンプレート: ${file.name}]`;
+        } else if (["xlsx","xls"].includes(ext)) {
+          content = `[Excelファイル: ${file.name} (${(file.size/1024).toFixed(0)}KB)]`;
+        } else if (["png","jpg","jpeg","gif","svg"].includes(ext)) {
+          content = `[画像: ${file.name}]`;
+        } else {
+          content = `[ファイル: ${file.name} (${(file.size/1024).toFixed(0)}KB)]`;
+        }
+      } catch (e) {
+        content = `[読み込みエラー: ${file.name}]`;
+      }
+      newFiles.push({ name: file.name, content, active: true, type: ext, size: file.size });
+    }
+    setRefFiles(prev => [...prev, ...newFiles]);
+  };
+
+  const toggleRefFile = (idx) => {
+    setRefFiles(prev => prev.map((f, i) => i === idx ? { ...f, active: !f.active } : f));
+  };
+
+  const removeRefFile = (idx) => {
+    setRefFiles(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const getRefContext = () => {
+    const active = refFiles.filter(f => f.active && f.content);
+    if (active.length === 0) return "";
+    return "\n\n【参考資料】\n" + active.map(f => `--- ${f.name} ---\n${f.content}`).join("\n\n");
+  };
+
   const sendChat = async () => {
     const text = chatInput.trim();
     if (!text || generating) return;
 
+    const refContext = getRefContext();
     const userMsg = { role: "user", content: text };
     const newMessages = [...chatMessages, userMsg];
     setChatMessages(newMessages);
     setChatInput("");
     setGenerating(true);
 
+    // Build messages for API - inject ref context into first user message
+    const apiMessages = newMessages.map((m, i) => {
+      if (i === 0 && m.role === "user" && refContext) {
+        return { ...m, content: m.content + refContext };
+      }
+      return m;
+    });
+
     try {
       const res = await fetch("/api/generate-slides", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: newMessages, mode: "full" })
+        body: JSON.stringify({ messages: apiMessages, mode: "full" })
       });
       const data = await res.json();
 
@@ -1082,143 +1138,78 @@ export default function CreatePptx({ setView }) {
             💬 チャット
           </div>
 
-          {/* ── Preset Template Selector ── */}
+          {/* ── Reference File Upload Area (NotebookLM style) ── */}
           <div style={{
             padding: "8px 12px",
             borderBottom: `1px solid ${V.border}`,
-            background: V.white
-          }}>
-            <div
-              onClick={() => setShowPresetPicker(!showPresetPicker)}
-              style={{
-                display: "flex", alignItems: "center", gap: "8px",
-                cursor: "pointer", padding: "6px 10px", borderRadius: "8px",
-                border: `1px solid ${V.border}`,
-                background: V.main, transition: "all 0.2s"
-              }}
-            >
-              {/* Mini color preview */}
-              <div style={{ display: "flex", gap: "3px", flexShrink: 0 }}>
-                <div style={{ width: 14, height: 14, borderRadius: 3, background: preset.coverBg, border: `1px solid ${V.border}` }} />
-                <div style={{ width: 14, height: 14, borderRadius: 3, background: preset.accent }} />
-                <div style={{ width: 14, height: 14, borderRadius: 3, background: preset.contentBg, border: `1px solid ${V.border}` }} />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: V.t1 }}>{preset.name}</div>
-                <div style={{ fontSize: "10px", color: V.t3 }}>{preset.desc}</div>
-              </div>
-              <span style={{ fontSize: "10px", color: V.t4, flexShrink: 0 }}>
-                {showPresetPicker ? "▲" : "▼"}
-              </span>
-            </div>
-
-            {showPresetPicker && (
-              <div style={{
-                marginTop: "6px", display: "flex", flexDirection: "column", gap: "4px",
-                maxHeight: "220px", overflowY: "auto"
-              }}>
-                {PRESET_TEMPLATES.map(pt => (
-                  <div
-                    key={pt.id}
-                    onClick={() => { setPresetId(pt.id); setShowPresetPicker(false); }}
-                    style={{
-                      display: "flex", alignItems: "center", gap: "8px",
-                      padding: "6px 8px", borderRadius: "6px",
-                      border: `1px solid ${pt.id === presetId ? preset.accent : V.border}`,
-                      background: pt.id === presetId ? `${preset.accent}10` : V.white,
-                      cursor: "pointer", transition: "all 0.15s"
-                    }}
-                    onMouseEnter={e => { if (pt.id !== presetId) e.currentTarget.style.background = V.main; }}
-                    onMouseLeave={e => { if (pt.id !== presetId) e.currentTarget.style.background = V.white; }}
-                  >
-                    {/* Swatch strip */}
-                    <div style={{
-                      display: "flex", flexDirection: "column", gap: "2px", flexShrink: 0
-                    }}>
-                      <div style={{ display: "flex", gap: "2px" }}>
-                        <div style={{ width: 16, height: 10, borderRadius: 2, background: pt.coverBg, border: `1px solid ${V.border}` }} />
-                        <div style={{ width: 16, height: 10, borderRadius: 2, background: pt.accent }} />
-                      </div>
-                      <div style={{ width: 34, height: 3, borderRadius: 1, background: pt.contentBg, border: `1px solid ${V.border}` }} />
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: "11px", fontWeight: 600, color: V.t1 }}>{pt.name}</div>
-                      <div style={{ fontSize: "9px", color: V.t3 }}>{pt.desc}</div>
-                    </div>
-                    {pt.id === presetId && (
-                      <span style={{ fontSize: "11px", color: preset.accent, fontWeight: 700 }}>✓</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* ── Template Upload Area ── */}
-          <div style={{
-            padding: "8px 12px",
-            borderBottom: `1px solid ${V.border}`,
-            background: templateFile ? `${V.green}08` : V.main
+            background: V.main
           }}>
             <input
-              ref={fileInputRef}
+              ref={refFileInputRef}
               type="file"
-              accept=".pptx"
+              multiple
+              accept=".txt,.md,.csv,.tsv,.json,.xml,.html,.pdf,.pptx,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.svg,.yaml,.yml,.log,.py,.js,.css"
               style={{ display: "none" }}
-              onChange={e => { if (e.target.files?.[0]) handleTemplateUpload(e.target.files[0]); }}
+              onChange={e => { if (e.target.files?.length) handleRefFileUpload(Array.from(e.target.files)); }}
             />
-            {!templateFile ? (
-              <div
-                onDrop={handleDrop}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onClick={() => fileInputRef.current?.click()}
-                style={{
-                  border: `1px dashed ${dragOver ? V.accent : V.border2}`,
-                  borderRadius: "6px",
-                  padding: "8px",
-                  textAlign: "center",
-                  cursor: "pointer",
-                  background: dragOver ? `${V.accent}08` : "transparent",
-                  transition: "all 0.2s"
-                }}
-              >
-                <div style={{ fontSize: "10px", color: V.t4, lineHeight: 1.5 }}>
-                  📎 独自テンプレート (.pptx) をアップロード
-                </div>
+            <div
+              onClick={() => refFileInputRef.current?.click()}
+              onDrop={e => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files?.length) handleRefFileUpload(Array.from(e.dataTransfer.files)); }}
+              onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              style={{
+                border: `1px dashed ${dragOver ? V.accent : V.border2}`,
+                borderRadius: "6px",
+                padding: "8px",
+                textAlign: "center",
+                cursor: "pointer",
+                background: dragOver ? `${V.accent}08` : "transparent",
+                transition: "all 0.2s"
+              }}
+            >
+              <div style={{ fontSize: "10px", color: V.t4, lineHeight: 1.5 }}>
+                📎 参考資料をアップロード（複数可）
               </div>
-            ) : (
-              <div style={{
-                display: "flex", alignItems: "center", gap: "8px",
-                background: V.white, borderRadius: "6px", padding: "6px 10px",
-                border: `1px solid ${V.green}40`
-              }}>
-                <span style={{ fontSize: "14px" }}>📊</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{
-                    fontSize: "10px", fontWeight: 600, color: V.t1,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
+            </div>
+
+            {/* Uploaded reference files with checkboxes */}
+            {refFiles.length > 0 && (
+              <div style={{ marginTop: "6px", display: "flex", flexDirection: "column", gap: "3px" }}>
+                {refFiles.map((rf, idx) => (
+                  <div key={idx} style={{
+                    display: "flex", alignItems: "center", gap: "6px",
+                    padding: "4px 8px", borderRadius: "5px",
+                    background: rf.active ? `${V.accent}08` : V.white,
+                    border: `1px solid ${rf.active ? `${V.accent}30` : V.border}`,
+                    fontSize: "10px"
                   }}>
-                    {templateName}
+                    <input
+                      type="checkbox"
+                      checked={rf.active}
+                      onChange={() => toggleRefFile(idx)}
+                      style={{ margin: 0, cursor: "pointer", accentColor: V.accent }}
+                    />
+                    <span style={{
+                      flex: 1, color: rf.active ? V.t1 : V.t4,
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      fontWeight: rf.active ? 500 : 400
+                    }}>
+                      {rf.type === "pptx" ? "📊" : rf.type === "csv" || rf.type === "xlsx" ? "📈" : rf.type === "pdf" ? "📄" : "📝"} {rf.name}
+                    </span>
+                    <span style={{ color: V.t4, fontSize: "9px", flexShrink: 0 }}>
+                      {(rf.size / 1024).toFixed(0)}KB
+                    </span>
+                    <button
+                      onClick={() => removeRefFile(idx)}
+                      style={{
+                        border: "none", background: "none", cursor: "pointer",
+                        fontSize: "11px", color: V.t4, padding: "0 2px", lineHeight: 1
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.color = V.red}
+                      onMouseLeave={e => e.currentTarget.style.color = V.t4}
+                    >✕</button>
                   </div>
-                  <div style={{ fontSize: "9px", color: V.green }}>
-                    アップロードテンプレ適用中
-                    {templateInfo?.slideCount && ` · ${templateInfo.slideCount}枚`}
-                  </div>
-                </div>
-                <button
-                  onClick={removeTemplate}
-                  style={{
-                    border: "none", background: "none", cursor: "pointer",
-                    fontSize: "12px", color: V.t4, padding: "2px 4px",
-                    borderRadius: "4px"
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.color = V.red}
-                  onMouseLeave={e => e.currentTarget.style.color = V.t4}
-                  title="テンプレートを削除"
-                >
-                  ✕
-                </button>
+                ))}
               </div>
             )}
           </div>
