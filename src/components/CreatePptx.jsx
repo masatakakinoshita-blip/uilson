@@ -1248,10 +1248,55 @@ export default function CreatePptx({ setView }) {
                     onClick={e => e.stopPropagation()}
                     onChange={e => {
                       e.stopPropagation();
+                      const newLayoutId = e.target.value;
+                      const newLayout = getLayout(newLayoutId);
                       markModified(i);
-                      setSlides(prev => prev.map((sl, idx) =>
-                        idx === i ? { ...sl, layoutVariant: e.target.value } : sl
-                      ));
+                      setSlides(prev => prev.map((sl, idx) => {
+                        if (idx !== i) return sl;
+                        const updated = { ...sl, layoutVariant: newLayoutId };
+                        // Initialize missing data fields required by the new layout
+                        if (newLayout && newLayout.req) {
+                          if (newLayout.req.includes("items") && (!updated.items || updated.items.length === 0)) {
+                            updated.items = [
+                              { icon: "📌", label: "項目1", desc: "説明を入力" },
+                              { icon: "💡", label: "項目2", desc: "説明を入力" },
+                              { icon: "🎯", label: "項目3", desc: "説明を入力" }
+                            ];
+                          }
+                          if (newLayout.req.includes("stats") && (!updated.stats || updated.stats.length === 0)) {
+                            updated.stats = [
+                              { value: "80%", label: "指標1", sub: "説明" },
+                              { value: "50%", label: "指標2", sub: "説明" },
+                              { value: "30%", label: "指標3", sub: "説明" }
+                            ];
+                          }
+                          if (newLayout.req.includes("steps") && (!updated.steps || updated.steps.length === 0)) {
+                            updated.steps = [
+                              { label: "ステップ1", desc: "内容を入力" },
+                              { label: "ステップ2", desc: "内容を入力" },
+                              { label: "ステップ3", desc: "内容を入力" }
+                            ];
+                          }
+                          if (newLayout.req.includes("columns") && (!updated.columns || updated.columns.length === 0)) {
+                            updated.columns = [
+                              { title: "カラムA", items: ["項目1", "項目2"] },
+                              { title: "カラムB", items: ["項目1", "項目2"] }
+                            ];
+                          }
+                          if (newLayout.req.includes("chartData") && (!updated.chartData || updated.chartData.length === 0)) {
+                            updated.chartData = [
+                              { label: "A", value: 40 },
+                              { label: "B", value: 30 },
+                              { label: "C", value: 20 },
+                              { label: "D", value: 10 }
+                            ];
+                          }
+                          if (newLayout.req.includes("body") && !updated.body) {
+                            updated.body = updated.body || "";
+                          }
+                        }
+                        return updated;
+                      }));
                     }}
                     style={{
                       fontSize: "10px", padding: "2px 6px", borderRadius: "6px",
@@ -1260,11 +1305,22 @@ export default function CreatePptx({ setView }) {
                       cursor: "pointer", fontWeight: 600, maxWidth: "140px"
                     }}
                   >
-                    {getCompatibleLayouts(s).map(layout => (
-                      <option key={layout.id} value={layout.id}>
-                        {layout.icon} {layout.name}
-                      </option>
-                    ))}
+                    {(() => {
+                      const isCover = s.layout === "cover" || s.layout === "closing";
+                      const layouts = isCover
+                        ? LAYOUT_CATALOG.filter(l => l.id === "cover" || l.id === "closing" || l.id === "section-break")
+                        : LAYOUT_CATALOG.filter(l => l.id !== "cover" && l.id !== "closing" && l.id !== "section-break");
+                      let lastCat = "";
+                      return layouts.map(layout => {
+                        const showCat = layout.cat !== lastCat;
+                        lastCat = layout.cat;
+                        return (
+                          <option key={layout.id} value={layout.id}>
+                            {showCat ? `── ${layout.cat} ── ` : ""}{layout.icon} {layout.name}
+                          </option>
+                        );
+                      });
+                    })()}
                   </select>
                 </div>
 
@@ -1282,7 +1338,17 @@ export default function CreatePptx({ setView }) {
                 )}
 
                 {/* ── Expanded editable view (selected) ── */}
-                {isSelected && (
+                {isSelected && (() => {
+                  const curLayoutId = s.layoutVariant || normalizeLayoutId(s.layout);
+                  const curLayout = getLayout(curLayoutId);
+                  const reqFields = curLayout ? curLayout.req : [];
+                  const needsBody = reqFields.includes("body") || s.layout === "cover" || s.layout === "closing";
+                  const needsItems = reqFields.includes("items");
+                  const needsStats = reqFields.includes("stats");
+                  const needsSteps = reqFields.includes("steps");
+                  const needsColumns = reqFields.includes("columns");
+                  const needsChartData = reqFields.includes("chartData");
+                  return (
                   <div onClick={e => e.stopPropagation()} style={{ display:"flex", flexDirection:"column" }}>
                     {/* Heading */}
                     <span style={labelStyle}>見出し</span>
@@ -1301,8 +1367,8 @@ export default function CreatePptx({ setView }) {
                       placeholder="サブタイトル（省略可）"
                     />
 
-                    {/* Body (for text/content layouts) */}
-                    {(s.body !== undefined || s.layout === "content" || s.layout === "cover" || s.layout === "closing") && (
+                    {/* Body (shown when layout requires body) */}
+                    {needsBody && (
                       <>
                         <span style={labelStyle}>本文</span>
                         <textarea
@@ -1314,8 +1380,8 @@ export default function CreatePptx({ setView }) {
                       </>
                     )}
 
-                    {/* Items (bullets) */}
-                    {s.items && s.items.length > 0 && (
+                    {/* Items (shown when layout requires items) */}
+                    {needsItems && s.items && s.items.length > 0 && (
                       <>
                         <span style={labelStyle}>📋 項目 ({s.items.length})</span>
                         {s.items.map((item, j) => (
@@ -1339,11 +1405,18 @@ export default function CreatePptx({ setView }) {
                             />
                           </div>
                         ))}
+                        <button
+                          onClick={() => {
+                            markModified(i);
+                            setSlides(prev => prev.map((sl, idx) => idx !== i ? sl : { ...sl, items: [...(sl.items||[]), { icon:"▶", label:"新規項目", desc:"" }] }));
+                          }}
+                          style={{ fontSize:"10px", padding:"3px 8px", borderRadius:"4px", border:`1px dashed ${V.border}`, background:"none", color:V.t3, cursor:"pointer", marginTop:"2px", alignSelf:"flex-start" }}
+                        >＋ 項目追加</button>
                       </>
                     )}
 
-                    {/* Stats */}
-                    {s.stats && s.stats.length > 0 && (
+                    {/* Stats (shown when layout requires stats) */}
+                    {needsStats && s.stats && s.stats.length > 0 && (
                       <>
                         <span style={labelStyle}>📊 数値・KPI ({s.stats.length})</span>
                         {s.stats.map((st, j) => (
@@ -1367,11 +1440,18 @@ export default function CreatePptx({ setView }) {
                             />
                           </div>
                         ))}
+                        <button
+                          onClick={() => {
+                            markModified(i);
+                            setSlides(prev => prev.map((sl, idx) => idx !== i ? sl : { ...sl, stats: [...(sl.stats||[]), { value:"0%", label:"新規指標", sub:"" }] }));
+                          }}
+                          style={{ fontSize:"10px", padding:"3px 8px", borderRadius:"4px", border:`1px dashed ${V.border}`, background:"none", color:V.t3, cursor:"pointer", marginTop:"2px", alignSelf:"flex-start" }}
+                        >＋ 指標追加</button>
                       </>
                     )}
 
-                    {/* Steps (timeline) */}
-                    {s.steps && s.steps.length > 0 && (
+                    {/* Steps (shown when layout requires steps) */}
+                    {needsSteps && s.steps && s.steps.length > 0 && (
                       <>
                         <span style={labelStyle}>🔄 ステップ ({s.steps.length})</span>
                         {s.steps.map((step, j) => (
@@ -1391,11 +1471,18 @@ export default function CreatePptx({ setView }) {
                             />
                           </div>
                         ))}
+                        <button
+                          onClick={() => {
+                            markModified(i);
+                            setSlides(prev => prev.map((sl, idx) => idx !== i ? sl : { ...sl, steps: [...(sl.steps||[]), { label:"新ステップ", desc:"" }] }));
+                          }}
+                          style={{ fontSize:"10px", padding:"3px 8px", borderRadius:"4px", border:`1px dashed ${V.border}`, background:"none", color:V.t3, cursor:"pointer", marginTop:"2px", alignSelf:"flex-start" }}
+                        >＋ ステップ追加</button>
                       </>
                     )}
 
-                    {/* Columns (comparison) */}
-                    {s.columns && s.columns.length > 0 && (
+                    {/* Columns (shown when layout requires columns) */}
+                    {needsColumns && s.columns && s.columns.length > 0 && (
                       <>
                         <span style={labelStyle}>📐 比較列 ({s.columns.length})</span>
                         {s.columns.map((col, j) => (
@@ -1414,11 +1501,18 @@ export default function CreatePptx({ setView }) {
                             />
                           </div>
                         ))}
+                        <button
+                          onClick={() => {
+                            markModified(i);
+                            setSlides(prev => prev.map((sl, idx) => idx !== i ? sl : { ...sl, columns: [...(sl.columns||[]), { title:"新カラム", items:["項目1"] }] }));
+                          }}
+                          style={{ fontSize:"10px", padding:"3px 8px", borderRadius:"4px", border:`1px dashed ${V.border}`, background:"none", color:V.t3, cursor:"pointer", marginTop:"2px", alignSelf:"flex-start" }}
+                        >＋ 列追加</button>
                       </>
                     )}
 
-                    {/* Chart Data */}
-                    {s.chartData && s.chartData.length > 0 && (
+                    {/* Chart Data (shown when layout requires chartData) */}
+                    {needsChartData && s.chartData && s.chartData.length > 0 && (
                       <>
                         <span style={labelStyle}>📈 グラフデータ ({s.chartData.length})</span>
                         {s.chartData.map((d, j) => (
@@ -1437,6 +1531,13 @@ export default function CreatePptx({ setView }) {
                             />
                           </div>
                         ))}
+                        <button
+                          onClick={() => {
+                            markModified(i);
+                            setSlides(prev => prev.map((sl, idx) => idx !== i ? sl : { ...sl, chartData: [...(sl.chartData||[]), { label:"新規", value:0 }] }));
+                          }}
+                          style={{ fontSize:"10px", padding:"3px 8px", borderRadius:"4px", border:`1px dashed ${V.border}`, background:"none", color:V.t3, cursor:"pointer", marginTop:"2px", alignSelf:"flex-start" }}
+                        >＋ データ追加</button>
                       </>
                     )}
 
@@ -1456,7 +1557,8 @@ export default function CreatePptx({ setView }) {
                       </div>
                     )}
                   </div>
-                )}
+                  );
+                })()}
 
                 {/* Color strip */}
                 <div style={{
