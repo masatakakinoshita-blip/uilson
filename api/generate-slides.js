@@ -45,31 +45,59 @@ export default async function handler(req, res) {
     {
       "id": 1,
       "title": "スライドタイトル",
-      "layout": "cover|content|chart|bullets|comparison|closing",
-      "layoutLabel": "レイアウト種別（例：表紙, 箇条書き, グラフ, 比較表, まとめ）",
+      "layout": "cover|content|bullets|stats|comparison|chart|timeline|closing",
+      "layoutLabel": "レイアウト種別",
       "heading": "スライドの見出し",
       "sub": "サブタイトルや補足テキスト",
-      "body": "本文テキスト（箇条書きの場合は改行区切り）",
+      "body": "本文テキスト（contentレイアウト用）",
       "note": "備考やフッターテキスト（省略可）",
-      "bg": "背景色（CSS色コード。coverは#1E2D50等の暗い色、contentは#FFFFFF等）",
-      "light": "true or false（背景が暗い場合はtrue）",
-      "dataSrc": ["データソース名の配列（例：売上DB、顧客リスト）空配列可"]
+      "bg": "背景色（CSS色コード）",
+      "light": true,
+      "dataSrc": [],
+
+      "items": [
+        {"icon": "▶", "label": "項目名", "desc": "説明テキスト"}
+      ],
+      "stats": [
+        {"value": "85%", "label": "指標名", "sub": "補足"}
+      ],
+      "columns": [
+        {"title": "列タイトル", "items": ["項目1", "項目2"]}
+      ],
+      "chartData": [
+        {"label": "カテゴリ名", "value": 75}
+      ],
+      "chartType": "bar|pie|line",
+      "steps": [
+        {"label": "ステップ名", "desc": "説明"}
+      ]
     }
   ],
   "summary": "プレゼン全体の概要（1文）"
 }
 
+レイアウト別の必須フィールド:
+- cover: heading, sub（表紙）
+- closing: heading, sub（まとめ）
+- content: heading, sub, body（通常テキスト）
+- bullets: heading, sub, items配列（各要素にicon/label/desc）。アイコンは内容に合った絵文字1文字を使う
+- stats: heading, sub, stats配列（2〜4個。value/label/sub）。valueは数字+単位
+- comparison: heading, sub, columns配列（2〜3列。title/items配列）
+- chart: heading, sub, chartData配列（label/value）, chartType
+- timeline: heading, sub, steps配列（label/desc）。3〜5ステップ
+
 ルール:
 - スライド数はユーザー指定があればそれに従う。なければ6〜10枚程度
-- 最初のスライドはlayout:"cover"にする
-- 最後のスライドはlayout:"closing"にする
+- 最初のスライドはlayout:"cover"、最後はlayout:"closing"
+- 中間スライドは必ずレイアウトを多様にする。同じlayoutを2枚以上連続させない
+- bulletsやstatsを積極的に使い、単調なcontent連続を避ける
 - coverとclosingのbgは暗い色（#1E2D50, #2B4070等）でlight:true
-- contentスライドのbgは明るい色（#FFFFFF, #F5F6FA等）でlight:false
-- chartスライドのbgも明るい色
+- その他スライドのbgは明るい色（#FFFFFF, #F5F6FA等）でlight:false
 - 日本語で作成する
 - 具体的で実用的な内容にする
-- 各スライドのsub、body、noteに充実した内容を入れる
-- lightフィールドはJSON booleanのtrue/falseで返す（文字列ではない）`;
+- lightフィールドはJSON booleanのtrue/falseで返す
+- 各レイアウトに対応するデータフィールドを必ず含める
+- 不要なフィールドは省略してよい（例：bulletsにbodyは不要）`;
 
     // Convert chat messages to Gemini format
     const geminiContents = [];
