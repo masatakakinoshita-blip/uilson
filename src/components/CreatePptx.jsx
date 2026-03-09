@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { DEFAULT_SLIDES, MODEL_COLORS, MODEL_NAMES, PRESET_TEMPLATES } from "../data/slides";
+import { LAYOUT_CATALOG, LAYOUT_CATEGORIES, getLayout, getCompatibleLayouts, normalizeLayoutId } from "../data/layouts";
+import { renderLayoutContent } from "./LayoutRenderers";
+import { renderPptxLayout } from "./PptxRenderers";
 
 const V = {
   bg:"#F0F2F7", sb:"#FFFFFF", main:"#F5F6FA", card:"#FFFFFF", border:"#DDE1EB",
@@ -671,53 +674,10 @@ export default function CreatePptx({ setView }) {
             }
             const cY = s.sub ? 2.0 : 1.5;
 
-            // Layout-specific content (template path)
-            if (s.layout === "bullets" && s.items && s.items.length > 0) {
-              const rH = Math.min(1.1, 4.8 / s.items.length);
-              s.items.forEach((item, idx) => {
-                const iy = cY + idx * rH;
-                pptSlide.addShape("rect", { x: 0.5, y: iy, w: 0.06, h: rH - 0.1, fill: { color: accentColor }, rectRadius: 0.02 });
-                pptSlide.addText(item.icon || "▶", { x: 0.7, y: iy, w: 0.5, h: rH - 0.1, fontSize: 20, valign: "middle", align: "center" });
-                pptSlide.addText(item.label, { x: 1.3, y: iy, w: 11, h: 0.4, fontSize: 16, fontFace: headingFont, color: textColor, bold: true, valign: "top" });
-                if (item.desc) pptSlide.addText(item.desc, { x: 1.3, y: iy + 0.4, w: 11, h: rH - 0.5, fontSize: 12, fontFace: bodyFont, color: subColor, valign: "top" });
-              });
-            } else if (s.layout === "stats" && s.stats && s.stats.length > 0) {
-              const nc = Math.min(s.stats.length, 4);
-              const cw = 11.33 / nc;
-              s.stats.forEach((st, idx) => {
-                const sx = 1 + idx * cw;
-                pptSlide.addShape("rect", { x: sx, y: cY, w: cw - 0.4, h: 3.5, fill: { color: "F8F9FA" }, rectRadius: 0.1, line: { color: "E0E0E0", width: 1 } });
-                pptSlide.addText(st.value, { x: sx, y: cY + 0.3, w: cw - 0.4, h: 1.2, fontSize: 36, fontFace: headingFont, color: accentColor, bold: true, align: "center", valign: "middle" });
-                pptSlide.addText(st.label, { x: sx, y: cY + 1.6, w: cw - 0.4, h: 0.6, fontSize: 14, fontFace: bodyFont, color: textColor, bold: true, align: "center", valign: "top" });
-                if (st.sub) pptSlide.addText(st.sub, { x: sx, y: cY + 2.2, w: cw - 0.4, h: 0.8, fontSize: 11, fontFace: bodyFont, color: subColor, align: "center", valign: "top" });
-              });
-            } else if (s.layout === "comparison" && s.columns && s.columns.length > 0) {
-              const nc = s.columns.length;
-              const cw = 11.33 / nc;
-              s.columns.forEach((col, idx) => {
-                const cx = 1 + idx * cw;
-                pptSlide.addShape("rect", { x: cx, y: cY, w: cw - 0.3, h: 0.6, fill: { color: accentColor }, rectRadius: 0.05 });
-                pptSlide.addText(col.title, { x: cx, y: cY, w: cw - 0.3, h: 0.6, fontSize: 15, fontFace: headingFont, color: "FFFFFF", bold: true, align: "center", valign: "middle" });
-                (col.items || []).forEach((item, j) => {
-                  pptSlide.addText(`• ${item}`, { x: cx + 0.15, y: cY + 0.8 + j * 0.55, w: cw - 0.6, h: 0.5, fontSize: 13, fontFace: bodyFont, color: textColor, valign: "top" });
-                });
-              });
-            } else if (s.layout === "timeline" && s.steps && s.steps.length > 0) {
-              const ns = s.steps.length;
-              const sw = 11.33 / ns;
-              pptSlide.addShape("rect", { x: 1.5, y: cY + 1.0, w: 10.33, h: 0.04, fill: { color: accentColor } });
-              s.steps.forEach((step, idx) => {
-                const sx = 1 + idx * sw + sw / 2 - 0.3;
-                pptSlide.addShape("ellipse", { x: sx, y: cY + 0.5, w: 0.6, h: 0.6, fill: { color: accentColor } });
-                pptSlide.addText(String(idx + 1), { x: sx, y: cY + 0.5, w: 0.6, h: 0.6, fontSize: 14, fontFace: headingFont, color: "FFFFFF", bold: true, align: "center", valign: "middle" });
-                pptSlide.addText(step.label, { x: sx - sw / 2 + 0.3, y: cY + 1.3, w: sw, h: 0.5, fontSize: 14, fontFace: headingFont, color: textColor, bold: true, align: "center", valign: "top" });
-                if (step.desc) pptSlide.addText(step.desc, { x: sx - sw / 2 + 0.3, y: cY + 1.8, w: sw, h: 1.2, fontSize: 11, fontFace: bodyFont, color: subColor, align: "center", valign: "top" });
-              });
-            } else {
-              if (s.body) {
-                pptSlide.addText(s.body, { x: 0.5, y: cY, w: 12.33, h: 4.5, fontSize: 16, fontFace: bodyFont, color: textColor, lineSpacingMultiple: 1.5, valign: "top" });
-              }
-            }
+            // Layout-specific content (template path) — 45+ variants via PptxRenderers
+            renderPptxLayout(pptSlide, s, s.layoutVariant || normalizeLayoutId(s.layout), cY, {
+              hFont: headingFont, bFont: bodyFont, accent: accentColor, textColor, subColor
+            });
           }
         }
 
@@ -795,175 +755,10 @@ export default function CreatePptx({ setView }) {
             }
             const contentY = s.sub ? 2.0 : 1.5;
 
-            // === Layout-specific PPTX content ===
-            if (s.layout === "bullets" && s.items && s.items.length > 0) {
-              const rowH = Math.min(1.1, 4.8 / s.items.length);
-              s.items.forEach((item, idx) => {
-                const iy = contentY + idx * rowH;
-                pptSlide.addShape("rect", {
-                  x: 0.5, y: iy, w: 0.06, h: rowH - 0.1,
-                  fill: { color: pAccent }, rectRadius: 0.02
-                });
-                pptSlide.addText(item.icon || "▶", {
-                  x: 0.7, y: iy, w: 0.5, h: rowH - 0.1,
-                  fontSize: 20, valign: "middle", align: "center"
-                });
-                pptSlide.addText(item.label, {
-                  x: 1.3, y: iy, w: 11, h: 0.4,
-                  fontSize: 16, fontFace: hFont, color: textColor, bold: true, valign: "top"
-                });
-                if (item.desc) {
-                  pptSlide.addText(item.desc, {
-                    x: 1.3, y: iy + 0.4, w: 11, h: rowH - 0.5,
-                    fontSize: 12, fontFace: bFont, color: subColor, valign: "top"
-                  });
-                }
-              });
-
-            } else if (s.layout === "stats" && s.stats && s.stats.length > 0) {
-              const cols = Math.min(s.stats.length, 4);
-              const colW = 11.33 / cols;
-              s.stats.forEach((st, idx) => {
-                const sx = 1 + idx * colW;
-                pptSlide.addShape("rect", {
-                  x: sx, y: contentY, w: colW - 0.4, h: 3.5,
-                  fill: { color: "F8F9FA" }, rectRadius: 0.1,
-                  line: { color: "E0E0E0", width: 1 }
-                });
-                pptSlide.addText(st.value, {
-                  x: sx, y: contentY + 0.3, w: colW - 0.4, h: 1.2,
-                  fontSize: 36, fontFace: hFont, color: pAccent, bold: true,
-                  align: "center", valign: "middle"
-                });
-                pptSlide.addText(st.label, {
-                  x: sx, y: contentY + 1.6, w: colW - 0.4, h: 0.6,
-                  fontSize: 14, fontFace: bFont, color: textColor, bold: true,
-                  align: "center", valign: "top"
-                });
-                if (st.sub) {
-                  pptSlide.addText(st.sub, {
-                    x: sx, y: contentY + 2.2, w: colW - 0.4, h: 0.8,
-                    fontSize: 11, fontFace: bFont, color: subColor,
-                    align: "center", valign: "top"
-                  });
-                }
-              });
-
-            } else if (s.layout === "comparison" && s.columns && s.columns.length > 0) {
-              const cols = s.columns.length;
-              const colW = 11.33 / cols;
-              s.columns.forEach((col, idx) => {
-                const cx = 1 + idx * colW;
-                // Column header
-                pptSlide.addShape("rect", {
-                  x: cx, y: contentY, w: colW - 0.3, h: 0.6,
-                  fill: { color: pAccent }, rectRadius: 0.05
-                });
-                pptSlide.addText(col.title, {
-                  x: cx, y: contentY, w: colW - 0.3, h: 0.6,
-                  fontSize: 15, fontFace: hFont, color: "FFFFFF", bold: true,
-                  align: "center", valign: "middle"
-                });
-                // Column items
-                (col.items || []).forEach((item, j) => {
-                  pptSlide.addText(`• ${item}`, {
-                    x: cx + 0.15, y: contentY + 0.8 + j * 0.55, w: colW - 0.6, h: 0.5,
-                    fontSize: 13, fontFace: bFont, color: textColor, valign: "top"
-                  });
-                });
-              });
-
-            } else if (s.layout === "chart" && s.chartData && s.chartData.length > 0) {
-              if (s.chartType === "pie") {
-                // Simple pie chart note
-                pptSlide.addText("📊 " + s.chartData.map(d => `${d.label}: ${d.value}`).join(" | "), {
-                  x: 0.5, y: contentY + 0.5, w: 12.33, h: 1,
-                  fontSize: 14, fontFace: bFont, color: textColor, align: "center"
-                });
-                // Legend
-                const legendColors = ["3C5996", "C83732", "2E7D32", "D4880F", "8E24AA", "00838F"];
-                s.chartData.forEach((d, idx) => {
-                  const ly = contentY + 2 + idx * 0.5;
-                  pptSlide.addShape("rect", {
-                    x: 4, y: ly, w: 0.3, h: 0.3,
-                    fill: { color: legendColors[idx % legendColors.length] }, rectRadius: 0.03
-                  });
-                  pptSlide.addText(`${d.label} (${d.value})`, {
-                    x: 4.5, y: ly, w: 5, h: 0.3,
-                    fontSize: 12, fontFace: bFont, color: textColor
-                  });
-                });
-              } else {
-                // Bar chart
-                const maxVal = Math.max(...s.chartData.map(d => d.value || 0), 1);
-                const barColors = ["3C5996", "C83732", "2E7D32", "D4880F", "8E24AA", "00838F"];
-                const barCount = s.chartData.length;
-                const bw = Math.min(1.5, 10 / barCount);
-                s.chartData.forEach((d, idx) => {
-                  const bx = 1.5 + idx * (bw + 0.3);
-                  const barH = Math.max((d.value / maxVal) * 3.5, 0.2);
-                  const by = contentY + 4 - barH;
-                  pptSlide.addShape("rect", {
-                    x: bx, y: by, w: bw, h: barH,
-                    fill: { color: barColors[idx % barColors.length] }, rectRadius: 0.05
-                  });
-                  pptSlide.addText(String(d.value), {
-                    x: bx, y: by - 0.4, w: bw, h: 0.35,
-                    fontSize: 12, fontFace: bFont, color: textColor, bold: true, align: "center"
-                  });
-                  pptSlide.addText(d.label, {
-                    x: bx, y: contentY + 4.1, w: bw, h: 0.5,
-                    fontSize: 10, fontFace: bFont, color: subColor, align: "center"
-                  });
-                });
-              }
-
-            } else if (s.layout === "timeline" && s.steps && s.steps.length > 0) {
-              const stepCount = s.steps.length;
-              const stepW = 11.33 / stepCount;
-              // Connecting line
-              pptSlide.addShape("rect", {
-                x: 1.5, y: contentY + 1.0, w: 10.33, h: 0.04,
-                fill: { color: pAccent }
-              });
-              s.steps.forEach((step, idx) => {
-                const sx = 1 + idx * stepW + stepW / 2 - 0.3;
-                // Circle number
-                pptSlide.addShape("ellipse", {
-                  x: sx, y: contentY + 0.5, w: 0.6, h: 0.6,
-                  fill: { color: pAccent }
-                });
-                pptSlide.addText(String(idx + 1), {
-                  x: sx, y: contentY + 0.5, w: 0.6, h: 0.6,
-                  fontSize: 14, fontFace: hFont, color: "FFFFFF", bold: true,
-                  align: "center", valign: "middle"
-                });
-                // Label
-                pptSlide.addText(step.label, {
-                  x: sx - stepW / 2 + 0.3, y: contentY + 1.3, w: stepW, h: 0.5,
-                  fontSize: 14, fontFace: hFont, color: textColor, bold: true,
-                  align: "center", valign: "top"
-                });
-                if (step.desc) {
-                  pptSlide.addText(step.desc, {
-                    x: sx - stepW / 2 + 0.3, y: contentY + 1.8, w: stepW, h: 1.2,
-                    fontSize: 11, fontFace: bFont, color: subColor,
-                    align: "center", valign: "top"
-                  });
-                }
-              });
-
-            } else {
-              // Default content layout
-              if (s.body) {
-                pptSlide.addText(s.body, {
-                  x: 0.5, y: contentY, w: 12.33, h: 4.5,
-                  fontSize: 16, fontFace: bFont,
-                  color: textColor, lineSpacingMultiple: 1.5,
-                  valign: "top"
-                });
-              }
-            }
+            // === Layout-specific PPTX content — 45+ variants via PptxRenderers ===
+            renderPptxLayout(pptSlide, s, s.layoutVariant || normalizeLayoutId(s.layout), contentY, {
+              hFont, bFont, accent: pAccent, textColor, subColor
+            });
           }
         }
 
@@ -1331,12 +1126,30 @@ export default function CreatePptx({ setView }) {
                   <span style={{ fontWeight: 700, color: V.t1 }}>
                     {s.id}. {s.heading || s.title}
                   </span>
-                  <span style={{
-                    fontSize: "10px", padding: "2px 8px", borderRadius: "10px",
-                    background: V.border, color: V.t3
-                  }}>
-                    {s.layoutLabel || s.layout}
-                  </span>
+                  {/* Layout variant picker */}
+                  <select
+                    value={s.layoutVariant || normalizeLayoutId(s.layout)}
+                    onClick={e => e.stopPropagation()}
+                    onChange={e => {
+                      e.stopPropagation();
+                      const newVariant = e.target.value;
+                      setSlides(prev => prev.map((sl, idx) =>
+                        idx === i ? { ...sl, layoutVariant: newVariant } : sl
+                      ));
+                    }}
+                    style={{
+                      fontSize: "10px", padding: "2px 6px", borderRadius: "6px",
+                      background: `${preset.accent}10`, color: preset.accent,
+                      border: `1px solid ${preset.accent}30`,
+                      cursor: "pointer", fontWeight: 600, maxWidth: "140px"
+                    }}
+                  >
+                    {getCompatibleLayouts(s).map(layout => (
+                      <option key={layout.id} value={layout.id}>
+                        {layout.icon} {layout.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 {s.sub && (
                   <div style={{ fontSize: "12px", color: V.t2, marginBottom: "6px", fontWeight: 500 }}>
@@ -1589,200 +1402,15 @@ export default function CreatePptx({ setView }) {
                           </div>
                         )}
 
-                        {/* === Layout-specific content === */}
-
-                        {/* BULLETS layout */}
-                        {slide.layout === "bullets" && slide.items && slide.items.length > 0 ? (
-                          <div style={{ display: "flex", flexDirection: "column", gap: "14px", flex: 1, width: "100%", overflow: "hidden" }}>
-                            {slide.items.map((item, i) => (
-                              <div key={i} style={{
-                                display: "flex", alignItems: "flex-start", gap: "14px",
-                                background: slide.light ? "rgba(255,255,255,0.08)" : `${tmAccent}08`,
-                                borderRadius: "10px", padding: "14px 18px",
-                                borderLeft: `4px solid ${tmAccent}`
-                              }}>
-                                <span style={{ fontSize: "24px", flexShrink: 0, lineHeight: 1.2 }}>{item.icon || "▶"}</span>
-                                <div style={{ flex: 1 }}>
-                                  <div style={{ fontWeight: 700, fontSize: "17px", color: getPreviewTextColor(slide), fontFamily: tmHeadingFont, marginBottom: "2px" }}>{item.label}</div>
-                                  {item.desc && <div style={{ fontSize: "14px", color: getPreviewSubColor(slide), fontFamily: tmBodyFont, lineHeight: 1.5 }}>{item.desc}</div>}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        ) : null}
-
-                        {/* STATS layout */}
-                        {slide.layout === "stats" && slide.stats && slide.stats.length > 0 ? (
-                          <div style={{
-                            display: "grid",
-                            gridTemplateColumns: `repeat(${Math.min(slide.stats.length, 4)}, 1fr)`,
-                            gap: "20px", flex: 1, width: "100%",
-                            alignContent: "center"
-                          }}>
-                            {slide.stats.map((st, i) => (
-                              <div key={i} style={{
-                                background: slide.light ? "rgba(255,255,255,0.1)" : `${tmAccent}0A`,
-                                borderRadius: "12px", padding: "24px 16px",
-                                textAlign: "center",
-                                border: `1px solid ${slide.light ? "rgba(255,255,255,0.15)" : `${tmAccent}20`}`
-                              }}>
-                                <div style={{
-                                  fontSize: "40px", fontWeight: 800, color: tmAccent,
-                                  fontFamily: tmHeadingFont, lineHeight: 1.2, marginBottom: "8px"
-                                }}>{st.value}</div>
-                                <div style={{
-                                  fontSize: "15px", fontWeight: 600, color: getPreviewTextColor(slide),
-                                  fontFamily: tmBodyFont, marginBottom: "4px"
-                                }}>{st.label}</div>
-                                {st.sub && <div style={{ fontSize: "12px", color: getPreviewSubColor(slide), fontFamily: tmBodyFont }}>{st.sub}</div>}
-                              </div>
-                            ))}
-                          </div>
-                        ) : null}
-
-                        {/* COMPARISON layout */}
-                        {slide.layout === "comparison" && slide.columns && slide.columns.length > 0 ? (
-                          <div style={{
-                            display: "grid",
-                            gridTemplateColumns: `repeat(${slide.columns.length}, 1fr)`,
-                            gap: "16px", flex: 1, width: "100%"
-                          }}>
-                            {slide.columns.map((col, i) => (
-                              <div key={i} style={{
-                                background: slide.light ? "rgba(255,255,255,0.08)" : "#FAFBFC",
-                                borderRadius: "10px", padding: "20px",
-                                border: `1px solid ${slide.light ? "rgba(255,255,255,0.12)" : V.border}`
-                              }}>
-                                <div style={{
-                                  fontSize: "18px", fontWeight: 700, color: tmAccent,
-                                  fontFamily: tmHeadingFont, marginBottom: "14px",
-                                  paddingBottom: "10px", borderBottom: `2px solid ${tmAccent}`
-                                }}>{col.title}</div>
-                                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                                  {(col.items || []).map((item, j) => (
-                                    <div key={j} style={{
-                                      fontSize: "14px", color: getPreviewTextColor(slide),
-                                      fontFamily: tmBodyFont, lineHeight: 1.5,
-                                      display: "flex", alignItems: "flex-start", gap: "8px"
-                                    }}>
-                                      <span style={{ color: tmAccent, fontWeight: 700, flexShrink: 0 }}>•</span>
-                                      <span>{item}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        ) : null}
-
-                        {/* CHART layout */}
-                        {slide.layout === "chart" && slide.chartData && slide.chartData.length > 0 ? (
-                          <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end", gap: "12px", paddingTop: "20px", paddingBottom: "8px" }}>
-                            {slide.chartType === "pie" ? (
-                              /* Pie chart visualization */
-                              <div style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: "40px" }}>
-                                <svg width="200" height="200" viewBox="0 0 200 200">
-                                  {(() => {
-                                    const total = slide.chartData.reduce((s, d) => s + (d.value || 0), 0);
-                                    const colors = ["#3C5996", "#C83732", "#2E7D32", "#D4880F", "#8E24AA", "#00838F", "#AD1457"];
-                                    let cum = 0;
-                                    return slide.chartData.map((d, i) => {
-                                      const pct = total > 0 ? d.value / total : 0;
-                                      const start = cum * 2 * Math.PI - Math.PI / 2;
-                                      cum += pct;
-                                      const end = cum * 2 * Math.PI - Math.PI / 2;
-                                      const large = pct > 0.5 ? 1 : 0;
-                                      const x1 = 100 + 90 * Math.cos(start), y1 = 100 + 90 * Math.sin(start);
-                                      const x2 = 100 + 90 * Math.cos(end), y2 = 100 + 90 * Math.sin(end);
-                                      return <path key={i} d={`M100,100 L${x1},${y1} A90,90 0 ${large},1 ${x2},${y2} Z`} fill={colors[i % colors.length]} />;
-                                    });
-                                  })()}
-                                </svg>
-                                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                                  {slide.chartData.map((d, i) => {
-                                    const colors = ["#3C5996", "#C83732", "#2E7D32", "#D4880F", "#8E24AA", "#00838F", "#AD1457"];
-                                    return (
-                                      <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", color: getPreviewTextColor(slide), fontFamily: tmBodyFont }}>
-                                        <div style={{ width: 12, height: 12, borderRadius: 3, background: colors[i % colors.length], flexShrink: 0 }} />
-                                        <span>{d.label} ({d.value})</span>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            ) : (
-                              /* Bar chart visualization (default) */
-                              (() => {
-                                const maxVal = Math.max(...slide.chartData.map(d => d.value || 0), 1);
-                                const colors = ["#3C5996", "#C83732", "#2E7D32", "#D4880F", "#8E24AA", "#00838F"];
-                                return slide.chartData.map((d, i) => (
-                                  <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }}>
-                                    <div style={{ fontSize: "13px", fontWeight: 700, color: getPreviewTextColor(slide), marginBottom: "6px", fontFamily: tmBodyFont }}>{d.value}</div>
-                                    <div style={{
-                                      width: "70%", borderRadius: "6px 6px 0 0",
-                                      background: `linear-gradient(180deg, ${colors[i % colors.length]}, ${colors[i % colors.length]}CC)`,
-                                      height: `${Math.max((d.value / maxVal) * 100, 8)}%`,
-                                      minHeight: "12px", transition: "height 0.3s"
-                                    }} />
-                                    <div style={{
-                                      fontSize: "11px", color: getPreviewSubColor(slide), marginTop: "6px",
-                                      textAlign: "center", fontFamily: tmBodyFont, lineHeight: 1.3
-                                    }}>{d.label}</div>
-                                  </div>
-                                ));
-                              })()
-                            )}
-                          </div>
-                        ) : null}
-
-                        {/* TIMELINE layout */}
-                        {slide.layout === "timeline" && slide.steps && slide.steps.length > 0 ? (
-                          <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "center", position: "relative", paddingTop: "16px" }}>
-                            {/* Connecting line */}
-                            <div style={{
-                              position: "absolute", top: "50%", left: "40px", right: "40px",
-                              height: "3px", background: `${tmAccent}30`, borderRadius: "2px"
-                            }} />
-                            <div style={{ display: "flex", justifyContent: "space-between", width: "100%", position: "relative", zIndex: 1 }}>
-                              {slide.steps.map((step, i) => (
-                                <div key={i} style={{
-                                  display: "flex", flexDirection: "column", alignItems: "center",
-                                  flex: 1, padding: "0 8px"
-                                }}>
-                                  <div style={{
-                                    width: "40px", height: "40px", borderRadius: "50%",
-                                    background: tmAccent, color: "#fff",
-                                    display: "flex", alignItems: "center", justifyContent: "center",
-                                    fontWeight: 800, fontSize: "16px", fontFamily: tmHeadingFont,
-                                    marginBottom: "12px", boxShadow: `0 2px 8px ${tmAccent}40`
-                                  }}>{i + 1}</div>
-                                  <div style={{
-                                    fontSize: "15px", fontWeight: 700, color: getPreviewTextColor(slide),
-                                    fontFamily: tmHeadingFont, textAlign: "center", marginBottom: "4px"
-                                  }}>{step.label}</div>
-                                  {step.desc && <div style={{
-                                    fontSize: "12px", color: getPreviewSubColor(slide),
-                                    fontFamily: tmBodyFont, textAlign: "center", lineHeight: 1.4
-                                  }}>{step.desc}</div>}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ) : null}
-
-                        {/* DEFAULT content layout (fallback) */}
-                        {(slide.layout === "content" || (!["bullets","stats","comparison","chart","timeline"].includes(slide.layout) && !slide.items && !slide.stats && !slide.columns && !slide.chartData && !slide.steps)) && slide.body ? (
-                          <div style={{
-                            fontSize: "18px", lineHeight: 1.7,
-                            whiteSpace: "pre-wrap",
-                            color: getPreviewTextColor(slide),
-                            opacity: slide.light ? 0.9 : 1,
-                            overflow: "hidden", flex: 1, width: "100%",
-                            fontFamily: tmBodyFont
-                          }}>
-                            {slide.body}
-                          </div>
-                        ) : null}
+                        {/* === Layout-specific content (45+ variants via LayoutRenderers) === */}
+                        {renderLayoutContent(slide, slide.layoutVariant || normalizeLayoutId(slide.layout), {
+                          accent: tmAccent,
+                          textColor: getPreviewTextColor(slide),
+                          subColor: getPreviewSubColor(slide),
+                          headingFont: tmHeadingFont,
+                          bodyFont: tmBodyFont,
+                          V
+                        })}
                       </>
                     )}
                     </div>{/* close text content layer */}
@@ -1797,7 +1425,7 @@ export default function CreatePptx({ setView }) {
                 fontSize: "11px", color: V.t4,
                 display: "flex", justifyContent: "space-between", alignItems: "center"
               }}>
-                <span><strong>{slide.heading || slide.title}</strong> — {slide.layoutLabel || slide.layout}</span>
+                <span><strong>{slide.heading || slide.title}</strong> — {(() => { const l = getLayout(slide.layoutVariant || normalizeLayoutId(slide.layout)); return l ? `${l.icon} ${l.name}` : slide.layoutLabel || slide.layout; })()}</span>
                 <span style={{
                   fontSize: "10px", padding: "2px 8px",
                   background: `${preset.accent}15`, color: preset.accent,
