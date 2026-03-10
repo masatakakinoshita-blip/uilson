@@ -536,8 +536,10 @@ export default function CreatePptx({ setView }) {
     if (generated && slides.length > 0) {
       const targetSlide = slides[curSlide];
       const slideJson = JSON.stringify(targetSlide, null, 2);
+      // Build context about the entire presentation for better responses
+      const allSlidesSummary = slides.map((sl, idx) => `${idx + 1}. [${sl.layout}] ${sl.heading || sl.title || "(無題)"}`).join("\n");
       const editPrompt = [
-        { role: "user", content: `以下のスライド(ID: ${targetSlide.id}, ${targetSlide.heading || targetSlide.title})を修正してください。\n\n現在のスライドデータ:\n${slideJson}\n\nユーザーの修正指示: ${text}${refContext}\n\nこのスライドのみを修正し、同じJSON構造で1枚だけ返してください。slidesの配列に1要素だけ入れて返してください。` }
+        { role: "user", content: `対象スライド（スライド${curSlide + 1}/${slides.length}）:\n${slideJson}\n\nプレゼン全体の構成:\n${allSlidesSummary}\n\nユーザーの指示: ${text}${refContext}\n\n指示に応じてスライドを修正してください。修正する場合はslidesに1要素のJSON、質問や会話の場合はテキストで返してください。\nスライドのlayoutを変える必要がある場合は変更してOKです（例: content→bullets）。noteやdataSrcフィールドも活用してください。` }
       ];
 
       try {
@@ -551,14 +553,27 @@ export default function CreatePptx({ setView }) {
         if (data.error) {
           setChatMessages(prev => [...prev, { role: "assistant", content: "エラー: " + data.error }]);
         } else if (data.slides && data.slides.length > 0) {
-          const updatedSlide = { ...data.slides[0], id: targetSlide.id, layoutVariant: targetSlide.layoutVariant };
+          const updatedSlide = data.slides[0];
+          // Preserve id; update layoutVariant if layout changed
+          updatedSlide.id = targetSlide.id;
+          if (!updatedSlide.layoutVariant) {
+            // If the AI changed the layout type, update layoutVariant accordingly
+            const newLayout = updatedSlide.layout || targetSlide.layout;
+            if (newLayout !== targetSlide.layout) {
+              updatedSlide.layoutVariant = normalizeLayoutId(newLayout);
+            } else {
+              updatedSlide.layoutVariant = targetSlide.layoutVariant;
+            }
+          }
+          markModified(curSlide);
           setSlides(prev => prev.map((sl, idx) => idx === curSlide ? updatedSlide : sl));
-          setChatMessages(prev => [...prev, {
-            role: "assistant",
-            content: `スライド${targetSlide.id}「${updatedSlide.heading || updatedSlide.title}」を更新しました。`
-          }]);
+          const reply = data.reply || `スライド${targetSlide.id}「${updatedSlide.heading || updatedSlide.title}」を更新しました。`;
+          setChatMessages(prev => [...prev, { role: "assistant", content: reply }]);
         } else if (data.rawText) {
+          // Conversational response (no slide modification)
           setChatMessages(prev => [...prev, { role: "assistant", content: data.rawText }]);
+        } else if (data.reply) {
+          setChatMessages(prev => [...prev, { role: "assistant", content: data.reply }]);
         }
       } catch (err) {
         setChatMessages(prev => [...prev, { role: "assistant", content: "更新エラー: " + err.message }]);
@@ -774,6 +789,15 @@ export default function CreatePptx({ setView }) {
             renderPptxLayout(pptSlide, s, s.layoutVariant || normalizeLayoutId(s.layout), cY, {
               hFont: headingFont, bFont: bodyFont, accent: accentColor, textColor, subColor
             });
+
+            // Note / dataSrc footer
+            const noteText = [s.note, s.dataSrc?.length ? `出典: ${s.dataSrc.join(" / ")}` : ""].filter(Boolean).join("  |  ");
+            if (noteText) {
+              pptSlide.addText(noteText, {
+                x: 0.5, y: 6.8, w: 12.33, h: 0.4,
+                fontSize: 8, fontFace: bodyFont, color: "999999", italic: true
+              });
+            }
           }
         }
 
@@ -855,6 +879,15 @@ export default function CreatePptx({ setView }) {
             renderPptxLayout(pptSlide, s, s.layoutVariant || normalizeLayoutId(s.layout), contentY, {
               hFont, bFont, accent: pAccent, textColor, subColor
             });
+
+            // Note / dataSrc footer
+            const noteText = [s.note, s.dataSrc?.length ? `出典: ${s.dataSrc.join(" / ")}` : ""].filter(Boolean).join("  |  ");
+            if (noteText) {
+              pptSlide.addText(noteText, {
+                x: 0.5, y: 6.8, w: 12.33, h: 0.4,
+                fontSize: 8, fontFace: bFont, color: "999999", italic: true
+              });
+            }
           }
         }
 
@@ -1542,18 +1575,56 @@ export default function CreatePptx({ setView }) {
                     )}
 
                     {/* Note */}
-                    <span style={labelStyle}>💡 備考</span>
+                    <span style={labelStyle}>💡 注釈・出典</span>
                     <input
                       value={s.note || ""}
                       onChange={e => updateSlide(i, { note: e.target.value })}
                       style={inputStyle}
-                      placeholder="備考やフッター（省略可）"
+                      placeholder="注釈・出典（スライド下部に表示）"
                     />
+                    {/* dataSrc array */}
+                    {s.dataSrc && s.dataSrc.length > 0 && (
+                      <div style={{ marginTop:"4px" }}>
+                        <span style={{ ...labelStyle, fontSize:"9px" }}>📚 参考文献</span>
+                        {s.dataSrc.map((src, di) => (
+                          <div key={di} style={{ display:"flex", gap:"4px", marginBottom:"2px" }}>
+                            <input
+                              value={src}
+                              onChange={e => {
+                                markModified(i);
+                                setSlides(prev => prev.map((sl, idx) => {
+                                  if (idx !== i) return sl;
+                                  const newSrc = [...(sl.dataSrc || [])];
+                                  newSrc[di] = e.target.value;
+                                  return { ...sl, dataSrc: newSrc };
+                                }));
+                              }}
+                              style={{ ...inputStyle, flex:1 }}
+                              placeholder={`出典${di+1}`}
+                            />
+                            <button
+                              onClick={() => {
+                                markModified(i);
+                                setSlides(prev => prev.map((sl, idx) => idx !== i ? sl : { ...sl, dataSrc: sl.dataSrc.filter((_, j) => j !== di) }));
+                              }}
+                              style={{ fontSize:"9px", padding:"2px 4px", border:"none", background:"none", color:V.red, cursor:"pointer" }}
+                            >✕</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <button
+                      onClick={() => {
+                        markModified(i);
+                        setSlides(prev => prev.map((sl, idx) => idx !== i ? sl : { ...sl, dataSrc: [...(sl.dataSrc || []), ""] }));
+                      }}
+                      style={{ fontSize:"10px", padding:"3px 8px", borderRadius:"4px", border:`1px dashed ${V.border}`, background:"none", color:V.t3, cursor:"pointer", marginTop:"4px", alignSelf:"flex-start" }}
+                    >＋ 出典追加</button>
 
                     {/* Per-slide chat hint */}
                     {generated && (
                       <div style={{ marginTop:"8px", padding:"6px 8px", background:`${V.accent}08`, borderRadius:"4px", fontSize:"10px", color:V.accent, lineHeight:1.4 }}>
-                        💬 チャットで指示するとこのスライドだけ更新されます
+                        💬 このスライドを選択してチャットすれば、出典追加・トーン変更・内容拡充など柔軟に対応します
                       </div>
                     )}
                   </div>
@@ -1859,6 +1930,22 @@ export default function CreatePptx({ setView }) {
                           bodyFont: tmBodyFont,
                           V
                         })}
+
+                        {/* === Note / dataSrc (citations, footnotes) === */}
+                        {(slide.note || (slide.dataSrc && slide.dataSrc.length > 0)) && (
+                          <div style={{
+                            position: "absolute", bottom: "12px", left: "40px", right: "40px",
+                            fontSize: "10px", color: slide.light ? "rgba(255,255,255,0.5)" : "#999",
+                            fontFamily: tmBodyFont, lineHeight: 1.4,
+                            borderTop: `1px solid ${slide.light ? "rgba(255,255,255,0.15)" : "#ddd"}`,
+                            paddingTop: "6px",
+                          }}>
+                            {slide.note && <div>{slide.note}</div>}
+                            {slide.dataSrc && slide.dataSrc.length > 0 && (
+                              <div>出典: {slide.dataSrc.join(" / ")}</div>
+                            )}
+                          </div>
+                        )}
                       </>
                     )}
                     </div>{/* close text content layer */}
@@ -2046,6 +2133,22 @@ export default function CreatePptx({ setView }) {
                     accent: tmAccent, textColor: getPreviewTextColor(slide), subColor: getPreviewSubColor(slide),
                     headingFont: tmHeadingFont, bodyFont: tmBodyFont, V
                   })}
+
+                  {/* Note / dataSrc in fullscreen */}
+                  {(slide.note || (slide.dataSrc && slide.dataSrc.length > 0)) && (
+                    <div style={{
+                      position: "absolute", bottom: "20px", left: "48px", right: "48px",
+                      fontSize: "14px", color: slide.light ? "rgba(255,255,255,0.5)" : "#999",
+                      fontFamily: tmBodyFont, lineHeight: 1.4,
+                      borderTop: `1px solid ${slide.light ? "rgba(255,255,255,0.15)" : "#ddd"}`,
+                      paddingTop: "8px",
+                    }}>
+                      {slide.note && <div>{slide.note}</div>}
+                      {slide.dataSrc && slide.dataSrc.length > 0 && (
+                        <div>出典: {slide.dataSrc.join(" / ")}</div>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
               </div>
