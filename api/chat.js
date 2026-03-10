@@ -4,20 +4,44 @@ const GEMINI_MODELS = [
   'gemini-2.5-pro',
 ];
 
-async function callGemini(apiKey, reqBody) {
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+async function callGemini(apiKey, reqBody, maxRetries = 3) {
   for (const model of GEMINI_MODELS) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(reqBody),
-    });
-    if (resp.status === 404 || resp.status === 403) continue; // model deprecated or unavailable
-    const data = await resp.json();
-    if (data.error && (data.error.code === 404 || data.error.status === 'NOT_FOUND')) continue;
-    return { data, model };
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(reqBody),
+      });
+
+      if (resp.status === 404 || resp.status === 403) break;
+
+      if (resp.status === 429) {
+        const waitSec = Math.min(20 * (attempt + 1), 60);
+        console.log(`Rate limited on ${model}, waiting ${waitSec}s (attempt ${attempt + 1}/${maxRetries})`);
+        await sleep(waitSec * 1000);
+        continue;
+      }
+
+      const data = await resp.json();
+
+      if (data.error) {
+        if (data.error.code === 404 || data.error.status === 'NOT_FOUND') break;
+        if (data.error.code === 429 || (data.error.message && data.error.message.includes('Quota exceeded'))) {
+          const waitSec = Math.min(20 * (attempt + 1), 60);
+          console.log(`Quota exceeded on ${model}, waiting ${waitSec}s (attempt ${attempt + 1}/${maxRetries})`);
+          await sleep(waitSec * 1000);
+          continue;
+        }
+      }
+
+      return { data, model };
+    }
   }
-  return { data: { error: { message: 'All Gemini models unavailable' } }, model: null };
+  return { data: { error: { message: 'しばらく時間をおいてからもう一度お試しください（API制限中）' } }, model: null };
 }
 
 export default async function handler(req, res) {

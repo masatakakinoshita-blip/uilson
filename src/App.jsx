@@ -55,7 +55,7 @@ export default function App() {
       const connStatus = "\n\n## Connected Services: " + (connected.length ? connected.join(", ") : "NONE") +
         (disconnected.length ? "\n## NOT Connected: " + disconnected.join(", ") : "");
       const systemPrompt =
-        "You are UILSON, a professional AI business assistant. Current: " +
+        "You are UILSON, a friendly and helpful AI assistant. Speak in a warm, easy-to-understand Japanese tone (丁寧だけど堅すぎない、お母さんにも伝わるような優しい口調で). Use simple words and avoid jargon. Current: " +
         now.toLocaleString("ja-JP") +
         " (" +
         dowNames[now.getDay()] +
@@ -138,7 +138,7 @@ export default function App() {
       style={{
         display: "flex",
         height: "100vh",
-        background: "#F0F2F7",
+        background: "#F4F1EE",
         color: "#333",
       }}
     >
@@ -159,7 +159,7 @@ export default function App() {
           display: "flex",
           flexDirection: "column",
           minWidth: 0,
-          background: "#F5F6FA",
+          background: "#FAF8F6",
         }}
       >
         {renderView()}

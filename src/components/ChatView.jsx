@@ -64,28 +64,28 @@ function renderMarkdown(text) {
 }
 
 const V = {
-  bg: "#F0F2F7",
+  bg: "#F4F1EE",
   sb: "#FFFFFF",
-  main: "#F5F6FA",
+  main: "#FAF8F6",
   card: "#FFFFFF",
-  border: "#DDE1EB",
-  t1: "#333333",
-  t2: "#555555",
-  t3: "#888888",
-  t4: "#AAAAAA",
+  border: "#E6E0DA",
+  t1: "#3D3530",
+  t2: "#5C534D",
+  t3: "#8E857E",
+  t4: "#B5ADA6",
   white: "#FFFFFF",
-  accent: "#3C5996",
-  teal: "#2B4070",
-  lime: "#ABCD00",
-  green: "#2E7D32",
-  red: "#C83732"
+  accent: "#5B7DB8",
+  teal: "#3D6098",
+  lime: "#A8C868",
+  green: "#5A9E6F",
+  red: "#C87066"
 };
 
 const quickActions = [
-  { icon: "☕️", label: "今日のブリーフィング", action: "おはよう！今日のブリーフィングをください。" },
-  { icon: "✉️", label: "未読メール", action: "未読メールを要約してください。" },
-  { icon: "📅", label: "今日の予定", action: "今日のカレンダーの予定は？" },
-  { icon: "💬", label: "Slackメッセージ", action: "最近のSlackメッセージを見せて。" }
+  { icon: "☕️", label: "今日のまとめ", action: "おはよう！今日のブリーフィングをお願いします。" },
+  { icon: "✉️", label: "メールチェック", action: "未読メールをわかりやすく教えてください。" },
+  { icon: "📅", label: "今日の予定", action: "今日のスケジュールを教えてください。" },
+  { icon: "💬", label: "Slackの様子", action: "最近のSlackメッセージを見せてください。" }
 ];
 
 export default function ChatView({
@@ -156,7 +156,7 @@ export default function ChatView({
               marginBottom: "4px"
             }}
           >
-            💬 指示する
+            💬 なんでも聞いてね
           </div>
           <div
             style={{
@@ -165,7 +165,7 @@ export default function ChatView({
               lineHeight: "1.4"
             }}
           >
-            AIが社内のあらゆる情報を横断して判断します
+            メール・予定・Slackなど、まとめてお手伝いします
           </div>
         </div>
 
@@ -345,7 +345,7 @@ export default function ChatView({
                   marginBottom: "4px"
                 }}
               >
-                AI業務アシスタント
+                あなたのAIアシスタント
               </div>
               <div
                 style={{
@@ -353,7 +353,7 @@ export default function ChatView({
                   color: V.t4
                 }}
               >
-                何でも聴いてください
+                お気軽にどうぞ 😊
               </div>
             </div>
 
@@ -499,7 +499,7 @@ export default function ChatView({
                   }}
                 >
                   <span>🔍</span>
-                  <span>情報を収集・分析中...</span>
+                  <span>調べています、少々お待ちくださいね...</span>
                 </div>
               </div>
             )}
@@ -525,7 +525,7 @@ export default function ChatView({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="何かお手伝いできることはありますか？"
+          placeholder="ここに聞きたいことを入力してください 😊"
           style={{
             flex: 1,
             padding: "12px 16px",

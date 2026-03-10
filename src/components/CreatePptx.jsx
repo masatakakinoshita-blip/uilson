@@ -5,10 +5,10 @@ import { renderLayoutContent } from "./LayoutRenderers";
 import { renderPptxLayout } from "./PptxRenderers";
 
 const V = {
-  bg:"#F0F2F7", sb:"#FFFFFF", main:"#F5F6FA", card:"#FFFFFF", border:"#DDE1EB",
-  border2:"#C8CDD8", t1:"#333333", t2:"#555555", t3:"#888888", t4:"#AAAAAA",
-  white:"#FFFFFF", accent:"#3C5996", teal:"#2B4070", navy:"#1E2D50", blue:"#3C5996",
-  red:"#C83732", green:"#2E7D32", orange:"#D4880F", lime:"#ABCD00"
+  bg:"#F4F1EE", sb:"#FFFFFF", main:"#FAF8F6", card:"#FFFFFF", border:"#E6E0DA",
+  border2:"#D4CEC7", t1:"#3D3530", t2:"#5C534D", t3:"#8E857E", t4:"#B5ADA6",
+  white:"#FFFFFF", accent:"#5B7DB8", teal:"#3D6098", navy:"#2B4570", blue:"#5B7DB8",
+  red:"#C87066", green:"#5A9E6F", orange:"#D4A050", lime:"#A8C868"
 };
 
 export default function CreatePptx({ setView }) {

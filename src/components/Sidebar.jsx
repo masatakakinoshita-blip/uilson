@@ -1,34 +1,34 @@
 import { useState } from "react";
 
 const V = {
-  bg: "#F0F2F7",
+  bg: "#F4F1EE",
   sb: "#FFFFFF",
-  main: "#F5F6FA",
+  main: "#FAF8F6",
   card: "#FFFFFF",
-  border: "#DDE1EB",
-  t1: "#333333",
-  t2: "#555555",
-  t3: "#888888",
-  t4: "#AAAAAA",
+  border: "#E6E0DA",
+  t1: "#3D3530",
+  t2: "#5C534D",
+  t3: "#8E857E",
+  t4: "#B5ADA6",
   white: "#FFFFFF",
-  accent: "#3C5996",
-  teal: "#2B4070",
-  lime: "#ABCD00",
-  green: "#2E7D32",
-  red: "#C83732"
+  accent: "#5B7DB8",
+  teal: "#3D6098",
+  lime: "#A8C868",
+  green: "#5A9E6F",
+  red: "#C87066"
 };
 
 const navItems = [
-  { id: "create-menu", icon: "✏️", label: "作る" },
-  { id: "chat", icon: "💬", label: "指示する" },
+  { id: "create-menu", icon: "✏️", label: "つくる" },
+  { id: "chat", icon: "💬", label: "聞いてみる" },
   {
     id: "learn",
-    icon: "👁️",
-    label: "学ばせる",
-    badge: { text: "学習中", pulse: true, bg: "rgba(60,89,150,0.08)", color: "#3C5996" }
+    icon: "📖",
+    label: "おぼえる",
+    badge: { text: "学習中", pulse: true, bg: "rgba(91,125,184,0.08)", color: "#5B7DB8" }
   },
-  { id: "run", icon: "⚡", label: "動かす", badge: { text: "3", bg: "rgba(46,125,50,0.08)", color: "#2E7D32" } },
-  { id: "review", icon: "📊", label: "振り返る" }
+  { id: "run", icon: "⚡", label: "おまかせ", badge: { text: "3", bg: "rgba(90,158,111,0.08)", color: "#5A9E6F" } },
+  { id: "review", icon: "📊", label: "ふりかえり" }
 ];
 
 export default function Sidebar({
@@ -105,7 +105,7 @@ export default function Sidebar({
               UILSON
             </div>
             <div style={{ fontSize: "11px", color: V.t3, lineHeight: "1.2" }}>
-              AI業務アシスタント
+              あなたのAIアシスタント
             </div>
           </div>
         )}
