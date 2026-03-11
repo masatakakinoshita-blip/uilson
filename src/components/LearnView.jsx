@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { TOOL_CATEGORIES, APPROVAL_GATE_OPTIONS } from "../hooks/useSkills";
 
 const V = {
   bg: "#F4F1EE", sb: "#FFFFFF", main: "#FAF8F6", card: "#FFFFFF",
@@ -7,7 +8,7 @@ const V = {
   green: "#5A9E6F", red: "#C87066", orange: "#C49A3C", lime: "#A8C868",
 };
 
-export default function LearnView({ skills, onCreateSkill, onUpdateSkill, onDeleteSkill, onAddExample, onFinalizeSkill, onToggleSkill }) {
+export default function LearnView({ skills, onCreateSkill, onUpdateSkill, onDeleteSkill, onFinalizeSkill, onToggleSkill }) {
   const [tab, setTab] = useState("teach");
   const [showWizard, setShowWizard] = useState(false);
   const [editingSkill, setEditingSkill] = useState(null);
@@ -17,8 +18,8 @@ export default function LearnView({ skills, onCreateSkill, onUpdateSkill, onDele
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ padding: "12px 24px", borderBottom: `1px solid ${V.border}`, background: V.sb }}>
-        <div style={{ fontSize: 20, fontWeight: 700, color: V.t1 }}>📖 おぼえる</div>
-        <div style={{ fontSize: 14, color: V.t3, marginTop: 2 }}>AIにスキルを教えて、業務を自動化します（{activeSkills.length}件アクティブ）</div>
+        <div style={{ fontSize: 20, fontWeight: 700, color: V.t1 }}>🧠 おぼえる</div>
+        <div style={{ fontSize: 14, color: V.t3, marginTop: 2 }}>AIに業務ワークフローを教えて、自律的に実行させます（{activeSkills.length}件アクティブ）</div>
       </div>
       <div style={{ display: "flex", gap: 0, padding: "0 24px", borderBottom: `1px solid ${V.border}`, background: V.sb }}>
         {[{ id: "teach", label: "新しく覚えさせる", count: learningSkills.length }, { id: "myskills", label: "スキル一覧", count: skills?.length || 0 }].map((t) => (
@@ -29,32 +30,32 @@ export default function LearnView({ skills, onCreateSkill, onUpdateSkill, onDele
         ))}
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
-        {tab === "teach" && <TeachTab skills={skills} learningSkills={learningSkills} showWizard={showWizard} setShowWizard={setShowWizard} editingSkill={editingSkill} setEditingSkill={setEditingSkill} onCreateSkill={onCreateSkill} onUpdateSkill={onUpdateSkill} onAddExample={onAddExample} onFinalizeSkill={onFinalizeSkill} onDeleteSkill={onDeleteSkill} />}
+        {tab === "teach" && <TeachTab skills={skills} learningSkills={learningSkills} showWizard={showWizard} setShowWizard={setShowWizard} editingSkill={editingSkill} setEditingSkill={setEditingSkill} onCreateSkill={onCreateSkill} onUpdateSkill={onUpdateSkill} onFinalizeSkill={onFinalizeSkill} onDeleteSkill={onDeleteSkill} />}
         {tab === "myskills" && <SkillsTab skills={skills || []} onToggleSkill={onToggleSkill} onDeleteSkill={onDeleteSkill} setEditingSkill={(s) => { setEditingSkill(s); setTab("teach"); setShowWizard(true); }} />}
       </div>
     </div>
   );
 }
 
-function TeachTab({ skills, learningSkills, showWizard, setShowWizard, editingSkill, setEditingSkill, onCreateSkill, onUpdateSkill, onAddExample, onFinalizeSkill, onDeleteSkill }) {
+function TeachTab({ skills, learningSkills, showWizard, setShowWizard, editingSkill, setEditingSkill, onCreateSkill, onUpdateSkill, onFinalizeSkill, onDeleteSkill }) {
   if (showWizard || editingSkill) {
-    return <SkillWizard skill={editingSkill} onClose={() => { setShowWizard(false); setEditingSkill(null); }} onCreateSkill={onCreateSkill} onUpdateSkill={onUpdateSkill} onAddExample={onAddExample} onFinalizeSkill={onFinalizeSkill} />;
+    return <SkillWizard skill={editingSkill} onClose={() => { setShowWizard(false); setEditingSkill(null); }} onCreateSkill={onCreateSkill} onUpdateSkill={onUpdateSkill} onFinalizeSkill={onFinalizeSkill} />;
   }
   return (
     <div>
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ margin: "0 0 8px 0", fontSize: 22, fontWeight: 700, color: V.t1 }}>📖 AIに新しいスキルを教える</h1>
-        <p style={{ margin: "0 0 16px 0", fontSize: 14, color: V.t3, lineHeight: 1.6 }}>業務のやり方をAIに教えると、次からはAIが自動で対応してくれます。</p>
-        <button onClick={() => setShowWizard(true)} style={{ padding: "12px 20px", backgroundColor: V.accent, color: V.white, border: "none", borderRadius: 8, cursor: "pointer", fontSize: 15, fontWeight: 600 }}>＋ 新しいスキルを覚えさせる</button>
+        <h1 style={{ margin: "0 0 8px 0", fontSize: 22, fontWeight: 700, color: V.t1 }}>🧠 AIにワークフローを教える</h1>
+        <p style={{ margin: "0 0 16px 0", fontSize: 14, color: V.t3, lineHeight: 1.6 }}>ゴールを定義し、使うツールと制約を設定すると、AIが自律的にタスクを実行します。</p>
+        <button onClick={() => setShowWizard(true)} style={{ padding: "12px 20px", backgroundColor: V.accent, color: V.white, border: "none", borderRadius: 8, cursor: "pointer", fontSize: 15, fontWeight: 600 }}>＋ 新しいスキルを作成</button>
       </div>
       {learningSkills.length > 0 && (
         <div style={{ marginBottom: 24 }}>
-          <h2 style={{ margin: "0 0 12px 0", fontSize: 16, fontWeight: 700, color: V.orange }}>学習中のスキル</h2>
+          <h2 style={{ margin: "0 0 12px 0", fontSize: 16, fontWeight: 700, color: V.orange }}>作成中のスキル</h2>
           {learningSkills.map((s) => (
             <div key={s.id} style={{ backgroundColor: V.card, border: `1px solid ${V.orange}40`, borderLeft: `4px solid ${V.orange}`, borderRadius: 8, padding: 16, marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 600, color: V.t1, marginBottom: 4 }}>{s.name}</div>
-                <div style={{ fontSize: 12, color: V.t3 }}>{s.description} · 例: {s.examples?.length || 0}件 · ステップ {s.step}/5</div>
+                <div style={{ fontSize: 12, color: V.t3 }}>{s.goal ? s.goal.substring(0, 60) + "..." : "ゴール未設定"} · ステップ {s.step}/5</div>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={() => { setEditingSkill(s); setShowWizard(true); }} style={{ padding: "8px 14px", backgroundColor: V.accent, color: V.white, border: "none", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>続ける</button>
@@ -65,9 +66,14 @@ function TeachTab({ skills, learningSkills, showWizard, setShowWizard, editingSk
         </div>
       )}
       <div style={{ marginTop: 16 }}>
-        <h2 style={{ margin: "0 0 16px 0", fontSize: 16, fontWeight: 700, color: V.t1 }}>使い方</h2>
+        <h2 style={{ margin: "0 0 16px 0", fontSize: 16, fontWeight: 700, color: V.t1 }}>スキルの仕組み</h2>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
-          {[{ step: "①", title: "名前をつける", desc: "覚えさせたい業務の名前を入力" }, { step: "②", title: "例を教える", desc: "3つ以上の具体例やルールを入力" }, { step: "③", title: "AIが学習", desc: "パターンを抽出しスキル化" }, { step: "④", title: "確認・完成", desc: "内容を確認してアクティブに" }].map((item, idx) => (
+          {[
+            { step: "①", title: "ゴール定義", desc: "AIに達成してほしい目標を記述" },
+            { step: "②", title: "ツール選択", desc: "使用を許可するサービスを選択" },
+            { step: "③", title: "制約と承認", desc: "やってはいけないことと確認ポイントを設定" },
+            { step: "④", title: "AI生成→有効化", desc: "AIがオーケストレーション計画を生成" },
+          ].map((item, idx) => (
             <div key={idx} style={{ backgroundColor: V.card, border: `1px solid ${V.border}`, borderRadius: 8, padding: 16, textAlign: "center" }}>
               <div style={{ fontSize: 28, marginBottom: 8 }}>{item.step}</div>
               <div style={{ fontSize: 14, fontWeight: 600, color: V.t1, marginBottom: 4 }}>{item.title}</div>
@@ -76,71 +82,181 @@ function TeachTab({ skills, learningSkills, showWizard, setShowWizard, editingSk
           ))}
         </div>
       </div>
+
+      {/* Example templates */}
+      <div style={{ marginTop: 28 }}>
+        <h2 style={{ margin: "0 0 16px 0", fontSize: 16, fontWeight: 700, color: V.t1 }}>テンプレートから作成</h2>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
+          {TEMPLATES.map((tpl, idx) => (
+            <button key={idx} onClick={() => { setEditingSkill({ ...tpl.data, id: null, status: "learning", step: 1 }); setShowWizard(true); }} style={{ backgroundColor: V.card, border: `1px solid ${V.border}`, borderRadius: 8, padding: 16, textAlign: "left", cursor: "pointer", transition: "border-color 0.2s" }} onMouseOver={e => e.currentTarget.style.borderColor = V.accent} onMouseOut={e => e.currentTarget.style.borderColor = V.border}>
+              <div style={{ fontSize: 20, marginBottom: 8 }}>{tpl.icon}</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: V.t1, marginBottom: 4 }}>{tpl.name}</div>
+              <div style={{ fontSize: 12, color: V.t3, lineHeight: 1.5 }}>{tpl.description}</div>
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
 
-function SkillWizard({ skill: initialSkill, onClose, onCreateSkill, onUpdateSkill, onAddExample, onFinalizeSkill }) {
-  const [step, setStep] = useState(initialSkill ? initialSkill.step : 1);
+const TEMPLATES = [
+  {
+    icon: "📋",
+    name: "会議準備アシスト",
+    description: "次の会議までに関連メール・ドキュメントを収集し、アジェンダ案を自動作成",
+    data: {
+      name: "会議準備アシスト",
+      goal: "次の会議の参加者・議題に関連する情報をメール・ドキュメント・カレンダーから収集し、アジェンダ案と要点サマリーを作成する",
+      toolCategories: ["gmail", "calendar", "drive"],
+      constraints: ["情報収集のみ行い、メールの送信やカレンダーの変更は行わない", "機密性の高い内容は要約に含めず、リンクのみ提示する"],
+      approvalGates: ["final_output"],
+      context: "定例会議やプロジェクトミーティングの事前準備に使用",
+    },
+  },
+  {
+    icon: "📧",
+    name: "メールトリアージ",
+    description: "未読メールを自動分類し、重要度別に整理。返信ドラフトも自動作成",
+    data: {
+      name: "メールトリアージ",
+      goal: "未読メールをスキャンし、緊急度（高・中・低）に分類する。高の場合は返信ドラフトを作成し、中は要約を提示、低はスキップする",
+      toolCategories: ["gmail"],
+      constraints: ["メールの削除は絶対にしない", "返信はドラフト作成のみ、自動送信しない", "個人的なメールはスキップする"],
+      approvalGates: ["send_email", "final_output"],
+      context: "朝のメール確認時や大量の未読を処理したい時に使用",
+    },
+  },
+  {
+    icon: "📊",
+    name: "週次レポート作成",
+    description: "メール・カレンダー・Slackから1週間の活動を集約し、レポートを自動生成",
+    data: {
+      name: "週次レポート作成",
+      goal: "過去1週間のカレンダーイベント、送受信メール、Slackメッセージから業務活動を収集し、進捗・達成事項・来週の予定をまとめたレポートをGoogle Docsに作成する",
+      toolCategories: ["gmail", "calendar", "slack", "drive"],
+      constraints: ["プライベートな予定やメールはレポートに含めない", "他人のメッセージは要約のみ、原文を転載しない"],
+      approvalGates: ["create_document", "final_output"],
+      context: "毎週金曜日に上司やチームに提出する週次報告に使用",
+    },
+  },
+  {
+    icon: "🔍",
+    name: "横断検索＆サマリー",
+    description: "全接続サービスからキーワードで一括検索し、結果をまとめて提示",
+    data: {
+      name: "横断検索＆サマリー",
+      goal: "ユーザーが指定したキーワードで、Gmail・Drive・カレンダー・Slack・Outlook・SharePointを横断検索し、関連度の高い結果をサービス別に整理して提示する",
+      toolCategories: ["gmail", "calendar", "drive", "outlook", "slack", "sharepoint", "web"],
+      constraints: ["検索のみ行い、データの変更・削除は一切しない", "各サービスから最大10件まで取得し、関連度順にソートする"],
+      approvalGates: [],
+      context: "プロジェクト名や取引先名で情報を横断的に探したい時に使用",
+    },
+  },
+];
+
+function SkillWizard({ skill: initialSkill, onClose, onCreateSkill, onUpdateSkill, onFinalizeSkill }) {
+  const [step, setStep] = useState(initialSkill?.step || 1);
   const [skillId, setSkillId] = useState(initialSkill?.id || null);
   const [name, setName] = useState(initialSkill?.name || "");
-  const [description, setDescription] = useState(initialSkill?.description || "");
-  const [examples, setExamples] = useState(initialSkill?.examples || []);
-  const [currentExample, setCurrentExample] = useState("");
-  const [generatedInstructions, setGeneratedInstructions] = useState(initialSkill?.instructions || "");
+  const [goal, setGoal] = useState(initialSkill?.goal || "");
+  const [toolCategories, setToolCategories] = useState(initialSkill?.toolCategories || []);
+  const [constraints, setConstraints] = useState(initialSkill?.constraints || []);
+  const [currentConstraint, setCurrentConstraint] = useState("");
+  const [approvalGates, setApprovalGates] = useState(initialSkill?.approvalGates || []);
+  const [context, setContext] = useState(initialSkill?.context || "");
+  const [orchestration, setOrchestration] = useState(initialSkill?.orchestration || "");
   const [triggers, setTriggers] = useState(initialSkill?.triggers?.join(", ") || "");
   const [generating, setGenerating] = useState(false);
-  const [editInstructions, setEditInstructions] = useState(false);
-  const exampleInputRef = useRef(null);
+  const [editOrchestration, setEditOrchestration] = useState(false);
+  const constraintRef = useRef(null);
+
+  const inputStyle = { width: "100%", padding: "10px 14px", border: `1px solid ${V.border}`, borderRadius: 8, fontSize: 14, boxSizing: "border-box", outline: "none", fontFamily: "inherit" };
 
   const handleStep1 = () => {
-    if (!name.trim()) return;
-    if (!skillId) { const created = onCreateSkill(name.trim(), description.trim()); setSkillId(created.id); }
-    else { onUpdateSkill(skillId, { name: name.trim(), description: description.trim() }); }
+    if (!name.trim() || !goal.trim()) return;
+    if (!skillId) {
+      const created = onCreateSkill({ name: name.trim(), goal: goal.trim() });
+      setSkillId(created.id);
+    } else {
+      onUpdateSkill(skillId, { name: name.trim(), goal: goal.trim() });
+    }
     setStep(2);
   };
 
-  const handleAddExample = () => {
-    if (!currentExample.trim()) return;
-    const newExamples = [...examples, currentExample.trim()];
-    setExamples(newExamples);
-    setCurrentExample("");
-    if (skillId) onAddExample(skillId, currentExample.trim());
-    setTimeout(() => exampleInputRef.current?.focus(), 50);
+  const handleStep2 = () => {
+    if (toolCategories.length === 0) return;
+    if (skillId) onUpdateSkill(skillId, { toolCategories, step: 3 });
+    setStep(3);
   };
 
-  const handleRemoveExample = (idx) => {
-    const newExamples = examples.filter((_, i) => i !== idx);
-    setExamples(newExamples);
-    if (skillId) onUpdateSkill(skillId, { examples: newExamples, step: newExamples.length >= 3 ? 3 : 2 });
+  const toggleTool = (catId) => {
+    setToolCategories(prev => prev.includes(catId) ? prev.filter(t => t !== catId) : [...prev, catId]);
+  };
+
+  const handleAddConstraint = () => {
+    if (!currentConstraint.trim()) return;
+    setConstraints(prev => [...prev, currentConstraint.trim()]);
+    setCurrentConstraint("");
+    setTimeout(() => constraintRef.current?.focus(), 50);
+  };
+
+  const toggleGate = (gateId) => {
+    setApprovalGates(prev => prev.includes(gateId) ? prev.filter(g => g !== gateId) : [...prev, gateId]);
+  };
+
+  const handleStep3 = () => {
+    if (skillId) onUpdateSkill(skillId, { constraints, approvalGates, context, step: 4 });
+    handleGenerate();
   };
 
   const handleGenerate = async () => {
+    setStep(4);
     setGenerating(true);
     try {
-      const res = await fetch("/api/generate-skill", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, description, examples }) });
+      const res = await fetch("/api/generate-skill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name, goal, toolCategories, constraints, approvalGates, context,
+        }),
+      });
       const data = await res.json();
-      if (data.instructions) {
-        setGeneratedInstructions(data.instructions);
+      if (data.orchestration) {
+        setOrchestration(data.orchestration);
         setTriggers(data.triggers?.join(", ") || "");
-        setStep(4);
-        if (skillId) onUpdateSkill(skillId, { step: 4 });
-      } else { useFallback(); }
-    } catch (err) { useFallback(); }
+      } else {
+        useFallback();
+      }
+    } catch {
+      useFallback();
+    }
     setGenerating(false);
 
     function useFallback() {
-      const fb = "このスキル「" + name + "」のルール:\n" + examples.map((e, i) => (i + 1) + ". " + e).join("\n") + "\nこれらのパターンに基づいて対応してください。";
-      setGeneratedInstructions(fb); setTriggers(name); setStep(4);
+      const toolNames = toolCategories.map(tc => {
+        const cat = TOOL_CATEGORIES.find(c => c.id === tc);
+        return cat ? cat.label : tc;
+      }).join(", ");
+      setOrchestration(
+        `## オーケストレーション計画: ${name}\n\n` +
+        `### ゴール\n${goal}\n\n` +
+        `### 実行手順\n` +
+        `1. ユーザーのリクエストを分析し、必要な情報を特定する\n` +
+        `2. ${toolNames} を使って情報を収集する\n` +
+        `3. 収集した情報を分析・整理する\n` +
+        (approvalGates.length > 0 ? `4. ユーザーに確認を取る（承認ゲート）\n5. 承認された場合、最終アクションを実行する\n` : `4. 結果をユーザーに提示する\n`) +
+        `\n### 制約条件\n` +
+        (constraints.length > 0 ? constraints.map(c => `- ${c}`).join("\n") : "- 特になし")
+      );
+      setTriggers(name);
     }
   };
 
   const handleFinalize = () => {
-    if (skillId) onFinalizeSkill(skillId, generatedInstructions, triggers.split(",").map((t) => t.trim()).filter(Boolean));
+    if (skillId) onFinalizeSkill(skillId, orchestration, triggers.split(",").map(t => t.trim()).filter(Boolean));
     setStep(5);
   };
-
-  const inputStyle = { width: "100%", padding: "10px 14px", border: `1px solid ${V.border}`, borderRadius: 8, fontSize: 14, boxSizing: "border-box", outline: "none", fontFamily: "inherit" };
 
   return (
     <div>
@@ -149,99 +265,180 @@ function SkillWizard({ skill: initialSkill, onClose, onCreateSkill, onUpdateSkil
         {[1, 2, 3, 4, 5].map((s) => (<div key={s} style={{ flex: 1, height: 4, borderRadius: 2, backgroundColor: s <= step ? V.accent : V.border }} />))}
       </div>
 
+      {/* Step 1: Name + Goal */}
       {step === 1 && (
-        <div style={{ maxWidth: 560 }}>
-          <h2 style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 700, color: V.t1 }}>① スキルの名前と概要</h2>
-          <p style={{ margin: "0 0 20px", fontSize: 13, color: V.t3 }}>AIに覚えさせたい業務の名前と説明を入力してください。</p>
+        <div style={{ maxWidth: 600 }}>
+          <h2 style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 700, color: V.t1 }}>① ゴールを定義する</h2>
+          <p style={{ margin: "0 0 20px", fontSize: 13, color: V.t3 }}>AIに「何を達成してほしいか」を具体的に記述してください。</p>
           <label style={{ display: "block", marginBottom: 6, fontSize: 13, fontWeight: 600, color: V.t2 }}>スキル名 *</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="例: 見積書の作成ルール" style={{ ...inputStyle, marginBottom: 16 }} autoFocus />
-          <label style={{ display: "block", marginBottom: 6, fontSize: 13, fontWeight: 600, color: V.t2 }}>説明</label>
-          <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="例: お客様の問い合わせに応じて見積書を作成する" rows={3} style={{ ...inputStyle, marginBottom: 20, resize: "vertical" }} />
-          <button onClick={handleStep1} disabled={!name.trim()} style={{ padding: "12px 24px", backgroundColor: name.trim() ? V.accent : V.border, color: V.white, border: "none", borderRadius: 8, cursor: name.trim() ? "pointer" : "default", fontSize: 14, fontWeight: 600 }}>次へ →</button>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="例: 会議準備アシスト" style={{ ...inputStyle, marginBottom: 16 }} autoFocus />
+          <label style={{ display: "block", marginBottom: 6, fontSize: 13, fontWeight: 600, color: V.t2 }}>ゴール（AIが達成すべき目標） *</label>
+          <textarea value={goal} onChange={e => setGoal(e.target.value)} placeholder="例: 次の会議の参加者・議題に関連する情報をメール・ドキュメントから収集し、アジェンダ案を作成する" rows={4} style={{ ...inputStyle, marginBottom: 20, resize: "vertical" }} />
+          <button onClick={handleStep1} disabled={!name.trim() || !goal.trim()} style={{ padding: "12px 24px", backgroundColor: name.trim() && goal.trim() ? V.accent : V.border, color: V.white, border: "none", borderRadius: 8, cursor: name.trim() && goal.trim() ? "pointer" : "default", fontSize: 14, fontWeight: 600 }}>次へ →</button>
         </div>
       )}
 
+      {/* Step 2: Tool Selection */}
       {step === 2 && (
-        <div style={{ maxWidth: 600 }}>
-          <h2 style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 700, color: V.t1 }}>② 具体例を教える</h2>
-          <p style={{ margin: "0 0 20px", fontSize: 13, color: V.t3 }}>「{name}」の具体的なルールや例を入力してください。3件以上でAIが正確に学習できます。</p>
-          {examples.length > 0 && (
-            <div style={{ marginBottom: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-              {examples.map((ex, idx) => (
-                <div key={idx} style={{ backgroundColor: V.main, border: `1px solid ${V.border}`, borderRadius: 8, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-                  <div style={{ fontSize: 13, color: V.t2, lineHeight: 1.5, flex: 1 }}><span style={{ color: V.accent, fontWeight: 600 }}>例{idx + 1}: </span>{ex}</div>
-                  <button onClick={() => handleRemoveExample(idx)} style={{ background: "none", border: "none", cursor: "pointer", color: V.t4, fontSize: 16, padding: 0 }}>×</button>
-                </div>
-              ))}
-            </div>
-          )}
-          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-            <textarea ref={exampleInputRef} value={currentExample} onChange={(e) => setCurrentExample(e.target.value)} placeholder="例: 金額が100万円以上の場合は部長承認が必要" rows={2} style={{ ...inputStyle, flex: 1, resize: "vertical" }} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleAddExample(); } }} />
-            <button onClick={handleAddExample} disabled={!currentExample.trim()} style={{ padding: "10px 16px", backgroundColor: currentExample.trim() ? V.accent : V.border, color: V.white, border: "none", borderRadius: 8, cursor: currentExample.trim() ? "pointer" : "default", fontSize: 13, fontWeight: 600, alignSelf: "flex-end" }}>追加</button>
+        <div style={{ maxWidth: 640 }}>
+          <h2 style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 700, color: V.t1 }}>② 使用ツールを選択</h2>
+          <p style={{ margin: "0 0 20px", fontSize: 13, color: V.t3 }}>このスキルでAIが使用を許可されるサービスを選んでください。</p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 24 }}>
+            {TOOL_CATEGORIES.map(cat => {
+              const selected = toolCategories.includes(cat.id);
+              return (
+                <button key={cat.id} onClick={() => toggleTool(cat.id)} style={{
+                  padding: "14px 12px", borderRadius: 8, cursor: "pointer", textAlign: "center", transition: "all 0.15s",
+                  backgroundColor: selected ? V.accent + "15" : V.card,
+                  border: `2px solid ${selected ? V.accent : V.border}`,
+                }}>
+                  <div style={{ fontSize: 24, marginBottom: 6 }}>{cat.icon}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: selected ? V.accent : V.t2 }}>{cat.label}</div>
+                  <div style={{ fontSize: 11, color: V.t4, marginTop: 2 }}>{cat.tools.length}ツール</div>
+                </button>
+              );
+            })}
           </div>
-          <div style={{ padding: "10px 14px", backgroundColor: examples.length >= 3 ? V.green + "10" : V.orange + "10", borderRadius: 8, fontSize: 13, color: examples.length >= 3 ? V.green : V.orange, marginBottom: 20 }}>
-            {examples.length >= 3 ? "✓ " + examples.length + "件の例が登録済み — AIに学習させる準備ができました" : "あと" + (3 - examples.length) + "件の例を追加してください（現在 " + examples.length + "/3）"}
+          <div style={{ padding: "10px 14px", backgroundColor: toolCategories.length > 0 ? V.green + "10" : V.orange + "10", borderRadius: 8, fontSize: 13, color: toolCategories.length > 0 ? V.green : V.orange, marginBottom: 20 }}>
+            {toolCategories.length > 0 ? `✓ ${toolCategories.length}カテゴリ選択済み` : "1つ以上のツールカテゴリを選択してください"}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={() => setStep(1)} style={{ padding: "12px 20px", backgroundColor: "transparent", color: V.t3, border: `1px solid ${V.border}`, borderRadius: 8, cursor: "pointer", fontSize: 14 }}>← 戻る</button>
-            <button onClick={() => { setStep(3); handleGenerate(); }} disabled={examples.length < 1} style={{ padding: "12px 24px", backgroundColor: examples.length >= 1 ? V.accent : V.border, color: V.white, border: "none", borderRadius: 8, cursor: examples.length >= 1 ? "pointer" : "default", fontSize: 14, fontWeight: 600 }}>AIに学習させる →</button>
+            <button onClick={handleStep2} disabled={toolCategories.length === 0} style={{ padding: "12px 24px", backgroundColor: toolCategories.length > 0 ? V.accent : V.border, color: V.white, border: "none", borderRadius: 8, cursor: toolCategories.length > 0 ? "pointer" : "default", fontSize: 14, fontWeight: 600 }}>次へ →</button>
           </div>
         </div>
       )}
 
+      {/* Step 3: Constraints + Approval Gates */}
       {step === 3 && (
+        <div style={{ maxWidth: 640 }}>
+          <h2 style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 700, color: V.t1 }}>③ 制約条件と承認ゲート</h2>
+          <p style={{ margin: "0 0 20px", fontSize: 13, color: V.t3 }}>AIがやってはいけないことと、人間の確認が必要なポイントを設定します。</p>
+
+          {/* Constraints */}
+          <div style={{ marginBottom: 24 }}>
+            <label style={{ display: "block", marginBottom: 8, fontSize: 14, fontWeight: 600, color: V.t1 }}>制約条件（AIがやってはいけないこと）</label>
+            {constraints.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+                {constraints.map((c, idx) => (
+                  <div key={idx} style={{ backgroundColor: V.main, border: `1px solid ${V.border}`, borderRadius: 6, padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 13, color: V.t2 }}>🚫 {c}</span>
+                    <button onClick={() => setConstraints(prev => prev.filter((_, i) => i !== idx))} style={{ background: "none", border: "none", cursor: "pointer", color: V.t4, fontSize: 14 }}>×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8 }}>
+              <input ref={constraintRef} value={currentConstraint} onChange={e => setCurrentConstraint(e.target.value)} placeholder="例: メールを自動送信しない" style={{ ...inputStyle, flex: 1 }} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleAddConstraint(); } }} />
+              <button onClick={handleAddConstraint} disabled={!currentConstraint.trim()} style={{ padding: "10px 16px", backgroundColor: currentConstraint.trim() ? V.accent : V.border, color: V.white, border: "none", borderRadius: 8, cursor: currentConstraint.trim() ? "pointer" : "default", fontSize: 13, fontWeight: 600 }}>追加</button>
+            </div>
+          </div>
+
+          {/* Approval Gates */}
+          <div style={{ marginBottom: 24 }}>
+            <label style={{ display: "block", marginBottom: 8, fontSize: 14, fontWeight: 600, color: V.t1 }}>承認ゲート（人間の確認が必要なポイント）</label>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8 }}>
+              {APPROVAL_GATE_OPTIONS.map(gate => {
+                const selected = approvalGates.includes(gate.id);
+                return (
+                  <button key={gate.id} onClick={() => toggleGate(gate.id)} style={{
+                    padding: "10px 12px", borderRadius: 8, cursor: "pointer", textAlign: "left", transition: "all 0.15s",
+                    backgroundColor: selected ? V.orange + "12" : V.card,
+                    border: `1.5px solid ${selected ? V.orange : V.border}`,
+                  }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: selected ? V.orange : V.t2, marginBottom: 2 }}>
+                      {selected ? "⚠️ " : "○ "}{gate.label}
+                    </div>
+                    <div style={{ fontSize: 11, color: V.t4 }}>{gate.description}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Context */}
+          <div style={{ marginBottom: 24 }}>
+            <label style={{ display: "block", marginBottom: 6, fontSize: 14, fontWeight: 600, color: V.t1 }}>補足情報（任意）</label>
+            <textarea value={context} onChange={e => setContext(e.target.value)} placeholder="例: 毎週月曜の朝に実行。レポートは日本語で作成。" rows={2} style={{ ...inputStyle, resize: "vertical" }} />
+          </div>
+
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setStep(2)} style={{ padding: "12px 20px", backgroundColor: "transparent", color: V.t3, border: `1px solid ${V.border}`, borderRadius: 8, cursor: "pointer", fontSize: 14 }}>← 戻る</button>
+            <button onClick={handleStep3} style={{ padding: "12px 24px", backgroundColor: V.accent, color: V.white, border: "none", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 600 }}>AIに生成させる →</button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 4: Review generated orchestration */}
+      {step === 4 && generating && (
         <div style={{ maxWidth: 500, textAlign: "center", padding: "40px 0" }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>📖</div>
-          <h2 style={{ margin: "0 0 8px", fontSize: 20, fontWeight: 700, color: V.t1 }}>AIが学習中...</h2>
-          <p style={{ margin: "0 0 24px", fontSize: 14, color: V.t3 }}>{examples.length}件の例からパターンを抽出しています</p>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>🧠</div>
+          <h2 style={{ margin: "0 0 8px", fontSize: 20, fontWeight: 700, color: V.t1 }}>オーケストレーション計画を生成中...</h2>
+          <p style={{ margin: "0 0 24px", fontSize: 14, color: V.t3 }}>ゴールとツールから最適な実行計画を組み立てています</p>
           <div style={{ display: "flex", flexDirection: "column", gap: 12, textAlign: "left", maxWidth: 360, margin: "0 auto" }}>
-            {[{ text: "例を分析中", done: true }, { text: "パターンを抽出中", done: generating }, { text: "スキル定義を生成中", done: false }].map((item, idx) => (
+            {["ゴールを分析中", "ツール間の依存関係を解析中", "実行ステップを構成中", "承認ゲートを組み込み中"].map((text, idx) => (
               <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                {item.done === true ? <span style={{ color: V.green, fontWeight: 700 }}>✓</span> : generating ? <span style={{ color: V.orange, animation: "pulse 1s infinite" }}>●</span> : <span style={{ color: V.t4 }}>○</span>}
-                <span style={{ fontSize: 13, color: item.done ? V.t1 : V.t3 }}>{item.text}</span>
+                <span style={{ color: V.orange, animation: "pulse 1s infinite" }}>●</span>
+                <span style={{ fontSize: 13, color: V.t3 }}>{text}</span>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {step === 4 && (
-        <div style={{ maxWidth: 640 }}>
-          <h2 style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 700, color: V.t1 }}>④ 確認・調整</h2>
-          <p style={{ margin: "0 0 20px", fontSize: 13, color: V.t3 }}>AIが生成したスキル定義を確認してください。必要に応じて編集できます。</p>
+      {step === 4 && !generating && (
+        <div style={{ maxWidth: 680 }}>
+          <h2 style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 700, color: V.t1 }}>④ オーケストレーション計画を確認</h2>
+          <p style={{ margin: "0 0 20px", fontSize: 13, color: V.t3 }}>AIが生成した自律実行計画を確認してください。必要に応じて編集できます。</p>
+
           <div style={{ backgroundColor: V.card, border: `1px solid ${V.accent}40`, borderRadius: 8, padding: 16, marginBottom: 16 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: V.t1, marginBottom: 4 }}>{name}</div>
-            <div style={{ fontSize: 12, color: V.t3, marginBottom: 12 }}>{description}</div>
-            <label style={{ display: "block", marginBottom: 6, fontSize: 12, fontWeight: 600, color: V.t2 }}>トリガーキーワード</label>
-            <input value={triggers} onChange={(e) => setTriggers(e.target.value)} placeholder="キーワードをカンマ区切りで" style={{ ...inputStyle, fontSize: 13, marginBottom: 14 }} />
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: V.t2 }}>スキル定義（AIへの指示）</label>
-              <button onClick={() => setEditInstructions(!editInstructions)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: V.accent, textDecoration: "underline" }}>{editInstructions ? "プレビュー" : "編集する"}</button>
+            {/* Summary */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+              <span style={{ padding: "3px 10px", borderRadius: 12, fontSize: 11, fontWeight: 600, backgroundColor: V.accent + "15", color: V.accent }}>🎯 {name}</span>
+              {toolCategories.map(tc => {
+                const cat = TOOL_CATEGORIES.find(c => c.id === tc);
+                return cat ? <span key={tc} style={{ padding: "3px 10px", borderRadius: 12, fontSize: 11, backgroundColor: V.green + "15", color: V.green }}>{cat.icon} {cat.label}</span> : null;
+              })}
+              {approvalGates.length > 0 && <span style={{ padding: "3px 10px", borderRadius: 12, fontSize: 11, backgroundColor: V.orange + "15", color: V.orange }}>⚠️ 承認ゲート×{approvalGates.length}</span>}
             </div>
-            {editInstructions ? (
-              <textarea value={generatedInstructions} onChange={(e) => setGeneratedInstructions(e.target.value)} rows={8} style={{ ...inputStyle, fontSize: 13, resize: "vertical", lineHeight: 1.6 }} />
+
+            {/* Triggers */}
+            <label style={{ display: "block", marginBottom: 6, fontSize: 12, fontWeight: 600, color: V.t2 }}>トリガーキーワード</label>
+            <input value={triggers} onChange={e => setTriggers(e.target.value)} placeholder="キーワードをカンマ区切りで" style={{ ...inputStyle, fontSize: 13, marginBottom: 14 }} />
+
+            {/* Orchestration */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: V.t2 }}>オーケストレーション計画（AIへの実行指示）</label>
+              <button onClick={() => setEditOrchestration(!editOrchestration)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: V.accent, textDecoration: "underline" }}>{editOrchestration ? "プレビュー" : "編集する"}</button>
+            </div>
+            {editOrchestration ? (
+              <textarea value={orchestration} onChange={e => setOrchestration(e.target.value)} rows={12} style={{ ...inputStyle, fontSize: 13, resize: "vertical", lineHeight: 1.6 }} />
             ) : (
-              <div style={{ backgroundColor: V.main, padding: 14, borderRadius: 6, fontSize: 13, color: V.t2, lineHeight: 1.7, whiteSpace: "pre-wrap", maxHeight: 240, overflowY: "auto" }}>{generatedInstructions}</div>
+              <div style={{ backgroundColor: V.main, padding: 14, borderRadius: 6, fontSize: 13, color: V.t2, lineHeight: 1.7, whiteSpace: "pre-wrap", maxHeight: 360, overflowY: "auto" }}>{orchestration}</div>
             )}
           </div>
+
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => setStep(2)} style={{ padding: "12px 20px", backgroundColor: "transparent", color: V.t3, border: `1px solid ${V.border}`, borderRadius: 8, cursor: "pointer", fontSize: 14 }}>← 例を追加</button>
+            <button onClick={() => setStep(3)} style={{ padding: "12px 20px", backgroundColor: "transparent", color: V.t3, border: `1px solid ${V.border}`, borderRadius: 8, cursor: "pointer", fontSize: 14 }}>← 戻る</button>
             <button onClick={handleFinalize} style={{ padding: "12px 24px", backgroundColor: V.green, color: V.white, border: "none", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 600 }}>✓ スキルを有効化</button>
           </div>
         </div>
       )}
 
+      {/* Step 5: Done */}
       {step === 5 && (
         <div style={{ maxWidth: 480, textAlign: "center", padding: "40px 0" }}>
           <div style={{ fontSize: 56, marginBottom: 16 }}>✓</div>
-          <h2 style={{ margin: "0 0 8px", fontSize: 22, fontWeight: 700, color: V.green }}>スキル完成！</h2>
+          <h2 style={{ margin: "0 0 8px", fontSize: 22, fontWeight: 700, color: V.green }}>スキル有効化完了！</h2>
           <p style={{ margin: "0 0 8px", fontSize: 15, color: V.t1, fontWeight: 600 }}>「{name}」</p>
-          <p style={{ margin: "0 0 24px", fontSize: 14, color: V.t3 }}>チャットで関連する質問をすると、このスキルが自動で適用されます。</p>
+          <p style={{ margin: "0 0 24px", fontSize: 14, color: V.t3 }}>チャットでゴールに関連するリクエストをすると、AIが自律的にこのスキルを実行します。</p>
           <div style={{ backgroundColor: V.main, borderRadius: 8, padding: 16, marginBottom: 24, textAlign: "left" }}>
-            <div style={{ fontSize: 13, color: V.t2, lineHeight: 1.6 }}>
-              <div style={{ marginBottom: 8 }}>✓ スキルがアクティブになりました</div>
-              <div style={{ marginBottom: 8 }}>✓ チャットで自動適用されます</div>
-              <div>✓ 「スキル一覧」タブで管理できます</div>
+            <div style={{ fontSize: 13, color: V.t2, lineHeight: 1.8 }}>
+              <div>✓ Plan→Execute→Observe ループで自律実行</div>
+              <div>✓ 許可されたツールのみ使用</div>
+              {constraints.length > 0 && <div>✓ {constraints.length}件の制約条件を遵守</div>}
+              {approvalGates.length > 0 && <div>✓ {approvalGates.length}箇所で人間の承認を要求</div>}
+              <div>✓ 「スキル一覧」タブで管理・一時停止可能</div>
             </div>
           </div>
           <button onClick={onClose} style={{ padding: "12px 24px", backgroundColor: V.accent, color: V.white, border: "none", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 600 }}>完了</button>
@@ -272,7 +469,7 @@ function SkillsTab({ skills, onToggleSkill, onDeleteSkill, setEditingSkill }) {
     <div>
       {activeSkills.length > 0 && <SkillSection title="アクティブ" badge={V.green} skills={activeSkills} onToggleSkill={onToggleSkill} onDeleteSkill={onDeleteSkill} setEditingSkill={setEditingSkill} />}
       {pausedSkills.length > 0 && <SkillSection title="一時停止中" badge={V.t4} skills={pausedSkills} onToggleSkill={onToggleSkill} onDeleteSkill={onDeleteSkill} setEditingSkill={setEditingSkill} />}
-      {learningSkills.length > 0 && <SkillSection title="学習中" badge={V.orange} skills={learningSkills} onToggleSkill={onToggleSkill} onDeleteSkill={onDeleteSkill} setEditingSkill={setEditingSkill} />}
+      {learningSkills.length > 0 && <SkillSection title="作成中" badge={V.orange} skills={learningSkills} onToggleSkill={onToggleSkill} onDeleteSkill={onDeleteSkill} setEditingSkill={setEditingSkill} />}
     </div>
   );
 }
@@ -294,9 +491,14 @@ function SkillSection({ title, badge, skills, onToggleSkill, onDeleteSkill, setE
 function SkillCard({ skill, onToggle, onDelete, onEdit }) {
   const isActive = skill.status === "active";
   const created = skill.createdAt ? new Date(skill.createdAt).toLocaleDateString("ja-JP") : "—";
+  const toolCats = (skill.toolCategories || []).map(tc => {
+    const cat = TOOL_CATEGORIES.find(c => c.id === tc);
+    return cat ? cat.icon : "";
+  }).join(" ");
+
   return (
     <div style={{ backgroundColor: V.card, border: `1px solid ${isActive ? V.green + "40" : V.border}`, borderRadius: 8, padding: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: V.t1, flex: 1 }}>{skill.name}</div>
         {skill.status !== "learning" && (
           <button onClick={onToggle} style={{ width: 40, height: 22, borderRadius: 11, border: "none", cursor: "pointer", backgroundColor: isActive ? V.green : V.border, position: "relative" }}>
@@ -304,9 +506,14 @@ function SkillCard({ skill, onToggle, onDelete, onEdit }) {
           </button>
         )}
       </div>
-      {skill.description && <div style={{ fontSize: 12, color: V.t3, marginBottom: 10, lineHeight: 1.4 }}>{skill.description}</div>}
+      {skill.goal && <div style={{ fontSize: 12, color: V.t3, marginBottom: 8, lineHeight: 1.4 }}>{skill.goal.substring(0, 80)}{skill.goal.length > 80 ? "..." : ""}</div>}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+        {toolCats && <span style={{ fontSize: 12 }}>{toolCats}</span>}
+        {(skill.approvalGates || []).length > 0 && <span style={{ padding: "1px 6px", borderRadius: 8, fontSize: 10, backgroundColor: V.orange + "15", color: V.orange }}>承認×{skill.approvalGates.length}</span>}
+        {(skill.constraints || []).length > 0 && <span style={{ padding: "1px 6px", borderRadius: 8, fontSize: 10, backgroundColor: V.red + "15", color: V.red }}>制約×{skill.constraints.length}</span>}
+      </div>
       <div style={{ fontSize: 11, color: V.t4, display: "flex", justifyContent: "space-between", borderTop: `1px solid ${V.border}`, paddingTop: 10, marginBottom: 10 }}>
-        <span>作成: {created}</span><span>利用: {skill.usageCount || 0}回</span>
+        <span>作成: {created}</span><span>実行: {skill.usageCount || 0}回</span>
       </div>
       <div style={{ display: "flex", gap: 6 }}>
         <button onClick={onEdit} style={{ flex: 1, padding: "6px 0", backgroundColor: "transparent", border: `1px solid ${V.border}`, borderRadius: 6, cursor: "pointer", fontSize: 11, color: V.t3 }}>編集</button>

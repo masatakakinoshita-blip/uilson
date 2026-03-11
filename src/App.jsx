@@ -134,7 +134,6 @@ export default function App() {
             onCreateSkill={skillsHook.createSkill}
             onUpdateSkill={skillsHook.updateSkill}
             onDeleteSkill={skillsHook.deleteSkill}
-            onAddExample={skillsHook.addExample}
             onFinalizeSkill={skillsHook.finalizeSkill}
             onToggleSkill={skillsHook.toggleSkill}
           />

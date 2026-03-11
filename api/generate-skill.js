@@ -19,6 +19,28 @@ async function callGemini(apiKey, reqBody) {
   return { data: { error: { message: 'All Gemini models unavailable' } }, model: null };
 }
 
+// Tool category ID → human-readable tool list
+const TOOL_MAP = {
+  gmail: 'gmail_search, gmail_create_draft, gmail_send_draft, gmail_send_direct, gmail_trash, gmail_modify_labels, gmail_list_labels, gmail_get_attachments',
+  calendar: 'calendar_list_events, calendar_find_free_time, calendar_check_conflicts, calendar_create_event, calendar_update_event, calendar_delete_event',
+  drive: 'google_drive_search, google_drive_list, google_drive_get_content, google_drive_create_doc',
+  outlook: 'outlook_search_mail, outlook_create_draft, outlook_delete_mail, outlook_move_mail, outlook_mark_read, outlook_flag_mail, outlook_get_attachments, outlook_list_folders',
+  outlook_cal: 'outlook_list_events, outlook_calendar_create, outlook_calendar_update, outlook_calendar_delete',
+  teams: 'teams_list_chats, teams_get_chat_messages, teams_list_teams_channels, teams_get_channel_messages',
+  sharepoint: 'sharepoint_search_sites, sharepoint_list_files, sharepoint_search_files, sharepoint_get_file_content',
+  slack: 'slack_search_users, slack_read_dm, slack_send_dm',
+  web: 'web_search',
+};
+
+const GATE_LABELS = {
+  send_email: 'メール送信前に必ずユーザーに確認を取る',
+  send_message: 'Slack/Teamsメッセージ送信前にユーザーに確認を取る',
+  create_event: 'カレンダー予定作成前にユーザーに確認を取る',
+  delete_anything: 'メール・予定・ファイルの削除前にユーザーに確認を取る',
+  create_document: 'ドキュメント作成前にユーザーに確認を取る',
+  final_output: '最終結果をユーザーに提示して確認を取る',
+};
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -29,39 +51,59 @@ export default async function handler(req, res) {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
   if (!apiKey) return generateFallback(req, res);
 
-  const { name, description, examples } = req.body;
-  if (!name || !examples || examples.length === 0) {
-    return res.status(400).json({ error: 'name and examples are required' });
+  const { name, goal, toolCategories, constraints, approvalGates, context } = req.body;
+  if (!name || !goal) {
+    return res.status(400).json({ error: 'name and goal are required' });
   }
 
-  const systemPrompt = `You are a skill definition generator for UILSON, an AI business assistant.
-Given a skill name, description, and examples from the user, generate:
-1. A clear, actionable instruction set (in Japanese) that another AI can follow to replicate this skill
-2. A list of trigger keywords that should activate this skill
+  const toolList = (toolCategories || []).map(tc => TOOL_MAP[tc] || tc).join('\n');
+  const constraintList = (constraints || []).map((c, i) => `${i + 1}. ${c}`).join('\n') || 'なし';
+  const gateList = (approvalGates || []).map(g => GATE_LABELS[g] || g).join('\n') || 'なし（全て自動実行可）';
 
-The instructions should be specific, step-by-step, and reference the patterns found in the examples.
-Output MUST be valid JSON with this structure:
+  const systemPrompt = `You are an AI orchestration plan generator for UILSON, an enterprise AI business assistant.
+
+Given a skill definition (goal, tools, constraints, approval gates), generate:
+1. A detailed orchestration plan in Japanese that another AI can follow autonomously
+2. Trigger keywords that should activate this skill
+
+The orchestration plan MUST follow the Plan→Execute→Observe pattern:
+- Break the goal into concrete sequential/parallel steps
+- For each step, specify which tool(s) to call and what to do with the results
+- Include decision points (if X then Y, else Z)
+- Include approval gates at the specified points
+- Include error handling (what to do if a tool fails)
+- End with a summary/output step
+
+Output MUST be valid JSON:
 {
-  "instructions": "string with the full skill instructions in Japanese",
+  "orchestration": "full orchestration plan string in Japanese with markdown formatting",
   "triggers": ["keyword1", "keyword2", ...]
 }
 
 IMPORTANT: Respond ONLY with the JSON object, no markdown code blocks or extra text.`;
 
-  const userContent = `ã¹ã­ã«å: ${name}
-èª¬æ: ${description || "ãªã"}
+  const userContent = `スキル名: ${name}
+ゴール: ${goal}
+補足情報: ${context || 'なし'}
 
-ã¦ã¼ã¶ã¼ãæããä¾:
-${examples.map((e, i) => `${i + 1}. ${e}`).join('\n')}
+使用可能ツール:
+${toolList}
 
-ä¸è¨ã®ä¾ãããã¿ã¼ã³ãåæããAIãåæ§ã®ã¿ã¹ã¯ãå®è¡ã§ããã¹ã­ã«å®ç¾©ãæ¥æ¬èªã§çæãã¦ãã ããã`;
+制約条件:
+${constraintList}
+
+承認ゲート:
+${gateList}
+
+上記の情報から、AIが自律的にこのタスクを実行できるオーケストレーション計画を生成してください。
+計画は具体的なツール名を使い、条件分岐とエラーハンドリングを含めてください。`;
 
   try {
     const { data } = await callGemini(apiKey, {
       contents: [
         { role: 'user', parts: [{ text: systemPrompt + '\n\n' + userContent }] }
       ],
-      generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
+      generationConfig: { temperature: 0.3, maxOutputTokens: 4096 },
     });
 
     if (data.error) return generateFallback(req, res);
@@ -81,7 +123,7 @@ ${examples.map((e, i) => `${i + 1}. ${e}`).join('\n')}
     }
 
     return res.status(200).json({
-      instructions: parsed.instructions || '',
+      orchestration: parsed.orchestration || '',
       triggers: parsed.triggers || [name],
     });
   } catch (err) {
@@ -91,27 +133,49 @@ ${examples.map((e, i) => `${i + 1}. ${e}`).join('\n')}
 }
 
 function generateFallback(req, res) {
-  const { name, description, examples } = req.body;
-  const instructions = `ãã¹ã­ã«: ${name}ã
+  const { name, goal, toolCategories, constraints, approvalGates, context } = req.body;
 
-ç®ç: ${description || name + 'ãèªååãã'}
+  const toolNames = (toolCategories || []).map(tc => {
+    const names = { gmail: 'Gmail', calendar: 'カレンダー', drive: 'Google Drive', outlook: 'Outlook', outlook_cal: 'Outlookカレンダー', teams: 'Teams', sharepoint: 'SharePoint', slack: 'Slack', web: 'Web検索' };
+    return names[tc] || tc;
+  });
 
-## ã«ã¼ã«ã»ãã¿ã¼ã³:
-${(examples || []).map((e, i) => `${i + 1}. ${e}`).join('\n')}
+  const orchestration = `## オーケストレーション計画: ${name}
 
-## å®è¡æ¹æ³:
-- ä¸è¨ã®ã«ã¼ã«ã¨ãã¿ã¼ã³ã«åºã¥ãã¦å¤æ­ã»å®è¡ãã¦ãã ãã
-- ã«ã¼ã«ã«è©²å½ããªãã±ã¼ã¹ã¯ãæãè¿ããã¿ã¼ã³ãåèã«ãã¦ãã ãã
-- ä¸æãªå ´åã¯ã¦ã¼ã¶ã¼ã«ç¢ºèªãã¦ãã ãã`;
+### ゴール
+${goal}
+${context ? `\n### 補足\n${context}` : ''}
+
+### 実行フロー
+
+**Phase 1: 情報収集**
+${toolNames.map((tn, i) => `${i + 1}. ${tn}から関連情報を取得する`).join('\n')}
+- エラー発生時: そのサービスをスキップし、他のサービスから取得を継続する
+
+**Phase 2: 分析・判断**
+1. 収集した情報をゴールに照らし合わせて分析する
+2. 不足している情報があれば追加で取得する
+3. 結果を整理・構造化する
+
+**Phase 3: アクション実行**
+${(approvalGates || []).length > 0 ? (approvalGates || []).map(g => `- ⚠️ ${GATE_LABELS[g] || g}`).join('\n') : '- 結果をユーザーに提示する'}
+
+### 制約条件
+${(constraints || []).length > 0 ? constraints.map(c => `- 🚫 ${c}`).join('\n') : '- 特になし'}
+
+### エラーハンドリング
+- ツールがエラーを返した場合、別の方法で情報取得を試みる
+- 認証エラーの場合、ユーザーにサービスの再接続を案内する
+- 情報が見つからない場合、その旨をユーザーに報告する`;
 
   const triggers = [name];
-  if (description) {
-    const words = description.split(/[ãã\s,.\n]+/).filter(w => w.length >= 2);
-    triggers.push(...words.slice(0, 3));
+  if (goal) {
+    const words = goal.split(/[、。\s,.\n]+/).filter(w => w.length >= 2).slice(0, 5);
+    triggers.push(...words);
   }
 
   return res.status(200).json({
-    instructions,
+    orchestration,
     triggers: [...new Set(triggers)],
   });
 }
