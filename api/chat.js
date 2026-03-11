@@ -3,7 +3,7 @@ import crypto from 'crypto';
 
 const CLAUDE_MODEL = 'claude-sonnet-4-6';
 const VERTEX_PROJECT = process.env.VERTEX_PROJECT_ID || 'uilson-489209';
-const VERTEX_REGION = process.env.VERTEX_REGION || 'global';
+const VERTEX_REGION = process.env.VERTEX_REGION || 'us-east1';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
