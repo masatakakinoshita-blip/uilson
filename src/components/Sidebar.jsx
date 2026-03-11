@@ -39,8 +39,18 @@ export default function Sidebar({
   token,
   slackConnected,
   msToken,
-  onSettingsClick
+  onSettingsClick,
+  skillCounts
 }) {
+  const learnBadge = skillCounts?.active > 0
+    ? { text: `${skillCounts.active}`, bg: "rgba(90,158,111,0.08)", color: "#5A9E6F" }
+    : skillCounts?.learning > 0
+    ? { text: "学習中", pulse: true, bg: "rgba(91,125,184,0.08)", color: "#5B7DB8" }
+    : null;
+
+  const dynamicNavItems = navItems.map((item) =>
+    item.id === "learn" ? { ...item, badge: learnBadge } : item
+  );
   const isActive = (itemId) => view === itemId;
 
   return (
@@ -161,7 +171,7 @@ export default function Sidebar({
 
       {/* Navigation Items */}
       <div style={{ flex: 1, padding: sbCollapsed ? "12px 4px" : "12px 8px", overflow: "hidden" }}>
-        {navItems.map((item) => (
+        {dynamicNavItems.map((item) => (
           <button
             key={item.id}
             onClick={() => setView(item.id)}
