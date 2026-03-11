@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import "./styles.css";
 import useAuth from "./hooks/useAuth";
 import useDataFetch from "./hooks/useDataFetch";
+import useSkills from "./hooks/useSkills";
 import Sidebar from "./components/Sidebar";
 import ChatView from "./components/ChatView";
 import CreateMenu from "./components/CreateMenu";
@@ -16,6 +17,7 @@ import SettingsModal from "./components/SettingsModal";
 export default function App() {
   const auth = useAuth();
   const data = useDataFetch(auth);
+  const skillsHook = useSkills();
 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -69,7 +71,8 @@ export default function App() {
         "\nFor Outlook calendar operations, use outlook_calendar_create/update/delete tools." +
         "\nIMPORTANT: When user asks about specific emails or calendar events not shown in context, ALWAYS use search tools to dynamically fetch data." +
         "\nFor Slack operations: use slack_search_users to find people, slack_read_dm to read DM history, slack_send_dm to send messages." +
-        "\nFor Google Drive: use google_drive_search/google_drive_list/google_drive_get_content tools.";
+        "\nFor Google Drive: use google_drive_search/google_drive_list/google_drive_get_content tools." +
+        skillsHook.getActiveSkillsPrompt();
 
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -107,7 +110,17 @@ export default function App() {
       case "create-docx":
         return <CreateDocx setView={setView} />;
       case "learn":
-        return <LearnView />;
+        return (
+          <LearnView
+            skills={skillsHook.skills}
+            onCreateSkill={skillsHook.createSkill}
+            onUpdateSkill={skillsHook.updateSkill}
+            onDeleteSkill={skillsHook.deleteSkill}
+            onAddExample={skillsHook.addExample}
+            onFinalizeSkill={skillsHook.finalizeSkill}
+            onToggleSkill={skillsHook.toggleSkill}
+          />
+        );
       case "run":
         return <RunView />;
       case "review":
@@ -151,6 +164,10 @@ export default function App() {
         slackConnected={auth.slackConnected}
         msToken={auth.msToken}
         onSettingsClick={() => setShowSettings(true)}
+        skillCounts={{
+          active: skillsHook.activeSkills.length,
+          learning: skillsHook.learningSkills.length,
+        }}
       />
       <div
         className="uilson-mn"
