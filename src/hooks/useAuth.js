@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 // This bypasses Vercel env var issues on the old deployment
 const GOOGLE_CLIENT_ID = "1061433368940-efg0dtq7j5linpfbimcnlu14b8da92ht.apps.googleusercontent.com";
 const GOOGLE_REDIRECT = window.location.origin;
-const SCOPES = "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive.readonly";
+const SCOPES = "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/documents";
 const SLACK_CLIENT_ID = import.meta.env.VITE_SLACK_CLIENT_ID;
 const SLACK_USER_SCOPES = "channels:read,channels:history,groups:read,groups:history,chat:write,users:read,im:read,im:write,im:history";
 const MS_CLIENT_ID = import.meta.env.VITE_MS_CLIENT_ID;

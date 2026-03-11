@@ -156,8 +156,23 @@ export default async function handler(req, res) {
       },
       // ===== GOOGLE CALENDAR TOOLS =====
       {
+        name: 'calendar_list_events',
+        description: 'List/search Google Calendar events in a date range. Use this to check what meetings are scheduled, find specific events, or check availability before scheduling. ALWAYS use this tool when user asks about their schedule, calendar, meetings, or availability.',
+        input_schema: { type: 'object', properties: { startDate: { type: 'string', description: 'Start of range in ISO 8601 (e.g. 2026-03-15T00:00:00+09:00)' }, endDate: { type: 'string', description: 'End of range in ISO 8601 (e.g. 2026-03-21T23:59:59+09:00)' }, query: { type: 'string', description: 'Optional search keyword to filter events by title/description' }, maxResults: { type: 'number', description: 'Max results (default 30)' } }, required: ['startDate', 'endDate'] }
+      },
+      {
+        name: 'calendar_find_free_time',
+        description: 'Find free time slots in a date range by analyzing Google Calendar events. Use when user asks "when am I free?", "空いてる時間は？", "いつ空いてる？", or wants to schedule a meeting and needs available time suggestions. Returns a list of free time slots during business hours (9:00-18:00 JST by default).',
+        input_schema: { type: 'object', properties: { startDate: { type: 'string', description: 'Start date in ISO 8601 (e.g. 2026-03-17T00:00:00+09:00)' }, endDate: { type: 'string', description: 'End date in ISO 8601 (e.g. 2026-03-21T23:59:59+09:00)' }, durationMinutes: { type: 'number', description: 'Minimum free slot duration in minutes (default 30)' }, startHour: { type: 'number', description: 'Business hours start (0-23, default 9)' }, endHour: { type: 'number', description: 'Business hours end (0-23, default 18)' } }, required: ['startDate', 'endDate'] }
+      },
+      {
+        name: 'calendar_check_conflicts',
+        description: 'Check if a proposed time slot conflicts with any existing Google Calendar events. Use before creating events to warn user about double-bookings. Also checks for nearby events and travel time considerations.',
+        input_schema: { type: 'object', properties: { startDateTime: { type: 'string', description: 'Proposed start time in ISO 8601' }, endDateTime: { type: 'string', description: 'Proposed end time in ISO 8601' } }, required: ['startDateTime', 'endDateTime'] }
+      },
+      {
         name: 'calendar_create_event',
-        description: 'Create a new Google Calendar event. For meetings with attendees, include their email addresses.',
+        description: 'Create a new Google Calendar event. For meetings with attendees, include their email addresses. IMPORTANT: Before creating, use calendar_check_conflicts to verify no double-booking.',
         input_schema: { type: 'object', properties: { summary: { type: 'string', description: 'Event title' }, description: { type: 'string', description: 'Event description' }, startDateTime: { type: 'string', description: 'Start in ISO 8601 (e.g. 2026-03-15T10:00:00+09:00)' }, endDateTime: { type: 'string', description: 'End in ISO 8601' }, location: { type: 'string', description: 'Location' }, attendees: { type: 'array', items: { type: 'string' }, description: 'List of attendee email addresses for meeting invites' } }, required: ['summary', 'startDateTime', 'endDateTime'] }
       },
       {
@@ -270,6 +285,12 @@ export default async function handler(req, res) {
         input_schema: { type: 'object', properties: { userId: { type: 'string', description: 'Slack user ID' }, text: { type: 'string', description: 'Message text to send' } }, required: ['userId', 'text'] }
       }
     ,{name:"teams_list_chats",description:"List user's recent Teams chats with last message preview",input_schema:{type:"object",properties:{top:{type:"number",description:"Number of chats (max 50)"}}}},{name:"teams_get_chat_messages",description:"Get messages from a specific Teams chat",input_schema:{type:"object",properties:{chatId:{type:"string",description:"Chat ID"}},required:["chatId"]}},{name:"teams_list_teams_channels",description:"List joined teams and their channels",input_schema:{type:"object",properties:{}}},{name:"teams_get_channel_messages",description:"Get recent messages from a Teams channel",input_schema:{type:"object",properties:{teamId:{type:"string",description:"Team ID"},channelId:{type:"string",description:"Channel ID"}},required:["teamId","channelId"]}},{name:"google_drive_search",description:"Search files in Google Drive",input_schema:{type:"object",properties:{query:{type:"string",description:"Search query"}},required:["query"]}},{name:"google_drive_list",description:"List recent files in Google Drive",input_schema:{type:"object",properties:{pageSize:{type:"number",description:"Number of files (max 100)"},folderId:{type:"string",description:"Folder ID (optional)"}}}},{name:"google_drive_get_content",description:"Get text content of a Google Drive document",input_schema:{type:"object",properties:{fileId:{type:"string",description:"File ID"}},required:["fileId"]}},
+      // ===== GOOGLE DRIVE CREATE DOC =====
+      {
+        name: 'google_drive_create_doc',
+        description: 'Create a new Google Doc in Google Drive with specified content. Use when user asks to create a document, report, meeting notes, summary, etc. Returns a link to the created document. The content supports basic text formatting.',
+        input_schema: { type: 'object', properties: { title: { type: 'string', description: 'Document title' }, content: { type: 'string', description: 'Document content (plain text, will be inserted into Google Doc)' }, folderId: { type: 'string', description: 'Optional: Google Drive folder ID to create the doc in' } }, required: ['title', 'content'] }
+      },
       // ===== WEATHER & WEB SEARCH TOOLS (always available) =====
       {
         name: 'weather_forecast',
@@ -395,6 +416,94 @@ export default async function handler(req, res) {
           }
 
           // ----- Google Calendar -----
+          case 'calendar_list_events': {
+            const start = encodeURIComponent(input.startDate);
+            const end = encodeURIComponent(input.endDate);
+            const max = input.maxResults || 30;
+            let url = 'https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=' + start + '&timeMax=' + end + '&maxResults=' + max + '&singleEvents=true&orderBy=startTime';
+            if (input.query) url += '&q=' + encodeURIComponent(input.query);
+            const r = await fetch(url, { headers: gh });
+            const d = await r.json();
+            if (!r.ok) return { error: d.error?.message || 'Calendar list failed' };
+            const events = (d.items || []).map(e => ({
+              id: e.id,
+              summary: e.summary || '(no title)',
+              start: e.start?.dateTime || e.start?.date || '',
+              end: e.end?.dateTime || e.end?.date || '',
+              location: e.location || '',
+              description: (e.description || '').substring(0, 200),
+              attendees: (e.attendees || []).map(a => ({ email: a.email, name: a.displayName || '', status: a.responseStatus })),
+              isAllDay: !!e.start?.date,
+              status: e.status
+            }));
+            return { results: events, count: events.length };
+          }
+
+          case 'calendar_find_free_time': {
+            const start = encodeURIComponent(input.startDate);
+            const end = encodeURIComponent(input.endDate);
+            const r = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=' + start + '&timeMax=' + end + '&maxResults=100&singleEvents=true&orderBy=startTime', { headers: gh });
+            const d = await r.json();
+            if (!r.ok) return { error: d.error?.message || 'Calendar fetch failed' };
+            const events = (d.items || []).filter(e => e.start?.dateTime).map(e => ({
+              start: new Date(e.start.dateTime),
+              end: new Date(e.end.dateTime),
+              summary: e.summary || '(no title)'
+            }));
+            const minDuration = (input.durationMinutes || 30) * 60 * 1000;
+            const bStart = input.startHour ?? 9;
+            const bEnd = input.endHour ?? 18;
+            const rangeStart = new Date(input.startDate);
+            const rangeEnd = new Date(input.endDate);
+            const freeSlots = [];
+            const current = new Date(rangeStart);
+            current.setHours(0, 0, 0, 0);
+            while (current < rangeEnd && freeSlots.length < 20) {
+              const dow = current.getDay();
+              if (dow === 0 || dow === 6) { current.setDate(current.getDate() + 1); continue; }
+              const dayStart = new Date(current); dayStart.setHours(bStart, 0, 0, 0);
+              const dayEnd = new Date(current); dayEnd.setHours(bEnd, 0, 0, 0);
+              const dayEvents = events.filter(e => e.start < dayEnd && e.end > dayStart).sort((a, b) => a.start - b.start);
+              let cursor = new Date(Math.max(dayStart, rangeStart));
+              for (const ev of dayEvents) {
+                const evStart = new Date(Math.max(ev.start, dayStart));
+                if (evStart > cursor && (evStart - cursor) >= minDuration) {
+                  freeSlots.push({ start: cursor.toISOString(), end: evStart.toISOString(), durationMin: Math.round((evStart - cursor) / 60000) });
+                }
+                cursor = new Date(Math.max(cursor, ev.end));
+              }
+              const effectiveDayEnd = new Date(Math.min(dayEnd, rangeEnd));
+              if (effectiveDayEnd > cursor && (effectiveDayEnd - cursor) >= minDuration) {
+                freeSlots.push({ start: cursor.toISOString(), end: effectiveDayEnd.toISOString(), durationMin: Math.round((effectiveDayEnd - cursor) / 60000) });
+              }
+              current.setDate(current.getDate() + 1);
+            }
+            return { freeSlots, count: freeSlots.length, businessHours: bStart + ':00-' + bEnd + ':00', minDuration: (input.durationMinutes || 30) + 'min' };
+          }
+
+          case 'calendar_check_conflicts': {
+            const bufferMs = 15 * 60 * 1000;
+            const checkStart = new Date(new Date(input.startDateTime).getTime() - bufferMs);
+            const checkEnd = new Date(new Date(input.endDateTime).getTime() + bufferMs);
+            const r = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=' + encodeURIComponent(checkStart.toISOString()) + '&timeMax=' + encodeURIComponent(checkEnd.toISOString()) + '&maxResults=20&singleEvents=true&orderBy=startTime', { headers: gh });
+            const d = await r.json();
+            if (!r.ok) return { error: d.error?.message || 'Calendar fetch failed' };
+            const proposedStart = new Date(input.startDateTime);
+            const proposedEnd = new Date(input.endDateTime);
+            const conflicts = [];
+            const nearby = [];
+            for (const e of (d.items || [])) {
+              const eStart = new Date(e.start?.dateTime || e.start?.date);
+              const eEnd = new Date(e.end?.dateTime || e.end?.date);
+              if (eStart < proposedEnd && eEnd > proposedStart) {
+                conflicts.push({ id: e.id, summary: e.summary, start: e.start?.dateTime || e.start?.date, end: e.end?.dateTime || e.end?.date });
+              } else {
+                nearby.push({ summary: e.summary, start: e.start?.dateTime || e.start?.date, end: e.end?.dateTime || e.end?.date });
+              }
+            }
+            return { hasConflict: conflicts.length > 0, conflicts, nearbyEvents: nearby, message: conflicts.length > 0 ? 'Warning: ' + conflicts.length + ' conflicting event(s) found!' : 'No conflicts. Time slot is available.' };
+          }
+
           case 'calendar_create_event': {
             const ev = { summary: input.summary, start: { dateTime: input.startDateTime }, end: { dateTime: input.endDateTime } };
             if (input.description) ev.description = input.description;
@@ -650,6 +759,27 @@ export default async function handler(req, res) {
             if(!r.ok){const e=await r.text();return {error:e};}
             const d = await r.json();
             return {files:(d.files||[]).map(f=>({id:f.id,name:f.name,type:f.mimeType,modified:f.modifiedTime,link:f.webViewLink||''}))};
+          }
+
+          case 'google_drive_create_doc': {
+            // Step 1: Create empty Google Doc
+            const docMeta = { name: input.title, mimeType: 'application/vnd.google-apps.document' };
+            if (input.folderId) docMeta.parents = [input.folderId];
+            const createR = await fetch('https://www.googleapis.com/drive/v3/files', {
+              method: 'POST', headers: gh, body: JSON.stringify(docMeta)
+            });
+            const createD = await createR.json();
+            if (!createR.ok) return { error: createD.error?.message || 'Failed to create document' };
+            // Step 2: Insert content using Google Docs API
+            const docId = createD.id;
+            const insertR = await fetch('https://docs.googleapis.com/v1/documents/' + docId + ':batchUpdate', {
+              method: 'POST', headers: gh,
+              body: JSON.stringify({ requests: [{ insertText: { location: { index: 1 }, text: input.content } }] })
+            });
+            const link = 'https://docs.google.com/document/d/' + docId + '/edit';
+            return insertR.ok
+              ? { success: true, docId, title: input.title, link, message: 'Document created: ' + link }
+              : { success: true, docId, title: input.title, link, message: 'Document created but content insert may have partially failed. Link: ' + link };
           }
 
           case 'google_drive_get_content': {

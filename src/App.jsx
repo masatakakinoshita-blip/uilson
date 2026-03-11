@@ -71,7 +71,25 @@ export default function App() {
         "\nFor Outlook calendar operations, use outlook_calendar_create/update/delete tools." +
         "\nIMPORTANT: When user asks about specific emails or calendar events not shown in context, ALWAYS use search tools to dynamically fetch data." +
         "\nFor Slack operations: use slack_search_users to find people, slack_read_dm to read DM history, slack_send_dm to send messages." +
-        "\nFor Google Drive: use google_drive_search/google_drive_list/google_drive_get_content tools." +
+        "\nFor Google Drive: use google_drive_search/google_drive_list/google_drive_get_content/google_drive_create_doc tools." +
+        "\n\n=== SMART SCHEDULING ===" +
+        "\nWhen user wants to schedule a meeting or asks about availability:" +
+        "\n1. Use calendar_list_events to check existing events in the date range" +
+        "\n2. Use calendar_find_free_time to find available slots" +
+        "\n3. Present 3-5 candidate times in a clear format with day-of-week" +
+        "\n4. Before creating any event, use calendar_check_conflicts to verify no double-booking" +
+        "\n5. If the user mentions another person, ask for their email to add as attendee" +
+        "\nWhen user asks '〇〇さんと来週ミーティングしたい' → find your free time, propose slots, and offer to create the event with the attendee." +
+        "\n\n=== INTEGRATED SEARCH ===" +
+        "\nWhen user asks to find something across services (e.g. '〇〇プロジェクトの資料を探して'):" +
+        "\n- Search ALL connected services simultaneously: Gmail (gmail_search), Google Drive (google_drive_search), Calendar (calendar_list_events), Slack (slack_read_dm), Outlook (outlook_search_mail), SharePoint (sharepoint_search_files)" +
+        "\n- Present results grouped by source service with clear labels" +
+        "\n- Include links where available" +
+        "\n\n=== DOCUMENT CREATION ===" +
+        "\nWhen user asks to create a document, report, summary, or draft:" +
+        "\n- Use google_drive_create_doc to create a Google Doc" +
+        "\n- For email drafts, use gmail_create_draft or outlook_create_draft" +
+        "\n- Always provide the link to the created document" +
         skillsHook.getActiveSkillsPrompt();
 
       const res = await fetch("/api/chat", {
