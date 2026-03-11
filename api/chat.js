@@ -1,47 +1,97 @@
-// Gemini model fallback chain: try models in order, skip to next on 404/deprecated
-const GEMINI_MODELS = [ 
-  'gemini-2.5-flash',
-  'gemini-2.5-pro',
-];
+// Claude via Vertex AI
+import crypto from 'crypto';
+
+const CLAUDE_MODEL = 'claude-sonnet-4-20250514';
+const VERTEX_PROJECT = process.env.VERTEX_PROJECT_ID || 'uilson-489209';
+const VERTEX_REGION = process.env.VERTEX_REGION || 'us-east5';
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-async function callGemini(apiKey, reqBody, maxRetries = 3) {
-  for (const model of GEMINI_MODELS) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+// Cache access token in module scope (Vercel may reuse between invocations)
+let cachedToken = null;
+let tokenExpiry = 0;
 
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(reqBody),
-      });
+async function getAccessToken() {
+  // Option 1: Direct access token (for testing)
+  if (process.env.VERTEX_ACCESS_TOKEN) return process.env.VERTEX_ACCESS_TOKEN;
 
-      if (resp.status === 404 || resp.status === 403) break;
+  // Check cached token
+  if (cachedToken && Date.now() < tokenExpiry - 60000) return cachedToken;
 
-      if (resp.status === 429) {
-        const waitSec = Math.min(20 * (attempt + 1), 60);
-        console.log(`Rate limited on ${model}, waiting ${waitSec}s (attempt ${attempt + 1}/${maxRetries})`);
+  // Option 2: Service account key (base64-encoded JSON)
+  const keyRaw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+  if (!keyRaw) throw new Error('No Vertex AI credentials configured. Set GOOGLE_SERVICE_ACCOUNT_KEY or VERTEX_ACCESS_TOKEN.');
+
+  let key;
+  try {
+    key = JSON.parse(Buffer.from(keyRaw, 'base64').toString());
+  } catch {
+    key = JSON.parse(keyRaw);
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({
+    iss: key.client_email,
+    scope: 'https://www.googleapis.com/auth/cloud-platform',
+    aud: 'https://oauth2.googleapis.com/token',
+    iat: now,
+    exp: now + 3600,
+  })).toString('base64url');
+
+  const sign = crypto.createSign('RSA-SHA256');
+  sign.update(header + '.' + payload);
+  const signature = sign.sign(key.private_key, 'base64url');
+  const jwt = header + '.' + payload + '.' + signature;
+
+  const resp = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`,
+  });
+  const data = await resp.json();
+  if (data.error) throw new Error('Auth failed: ' + (data.error_description || data.error));
+
+  cachedToken = data.access_token;
+  tokenExpiry = Date.now() + (data.expires_in || 3600) * 1000;
+  return cachedToken;
+}
+
+async function callClaude(accessToken, body, maxRetries = 2) {
+  const url = `https://${VERTEX_REGION}-aiplatform.googleapis.com/v1/projects/${VERTEX_PROJECT}/locations/${VERTEX_REGION}/publishers/anthropic/models/${CLAUDE_MODEL}:rawPredict`;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + accessToken,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (resp.status === 429 || resp.status === 529) {
+      const waitSec = Math.min(15 * (attempt + 1), 45);
+      console.log(`Claude rate limited, waiting ${waitSec}s (attempt ${attempt + 1}/${maxRetries})`);
+      await sleep(waitSec * 1000);
+      continue;
+    }
+
+    const data = await resp.json();
+
+    if (data.error) {
+      if (data.error.code === 429 || data.error.type === 'rate_limit_error') {
+        const waitSec = Math.min(15 * (attempt + 1), 45);
+        console.log(`Claude rate limit error, waiting ${waitSec}s`);
         await sleep(waitSec * 1000);
         continue;
       }
-
-      const data = await resp.json();
-
-      if (data.error) {
-        if (data.error.code === 404 || data.error.status === 'NOT_FOUND') break;
-        if (data.error.code === 429 || (data.error.message && data.error.message.includes('Quota exceeded'))) {
-          const waitSec = Math.min(20 * (attempt + 1), 60);
-          console.log(`Quota exceeded on ${model}, waiting ${waitSec}s (attempt ${attempt + 1}/${maxRetries})`);
-          await sleep(waitSec * 1000);
-          continue;
-        }
-      }
-
-      return { data, model };
+      return data;
     }
+
+    return data;
   }
-  return { data: { error: { message: 'しばらく時間をおいてからもう一度お試しください（API制限中）' } }, model: null };
+  return { error: { message: 'しばらく時間をおいてからもう一度お試しください（API制限中）' } };
 }
 
 export default async function handler(req, res) {
@@ -105,11 +155,15 @@ export default async function handler(req, res) {
   }
   // === End Google OAuth handling ===
 
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey)
-    return res.status(500).json({ error: 'GEMINI_API_KEY not configured' });
-
   try {
+    // Get Vertex AI access token
+    let vertexToken;
+    try {
+      vertexToken = await getAccessToken();
+    } catch (authErr) {
+      return res.status(500).json({ error: 'Vertex AI auth failed: ' + authErr.message });
+    }
+
     const { messages, system, googleToken, msToken, slackToken } = req.body;
 
     const tools = [
@@ -266,8 +320,7 @@ export default async function handler(req, res) {
         name: 'sharepoint_get_file_content',
         description: 'Get the text content or metadata of a SharePoint file.',
         input_schema: { type: 'object', properties: { siteId: { type: 'string', description: 'SharePoint site ID' }, itemId: { type: 'string', description: 'File/item ID' } }, required: ['siteId', 'itemId'] }
-      }
-    ,
+      },
       // ===== SLACK DM TOOLS =====
       {
         name: 'slack_search_users',
@@ -283,9 +336,44 @@ export default async function handler(req, res) {
         name: 'slack_send_dm',
         description: 'Send a DM (direct message) to a Slack user. IMPORTANT: Only use after user explicitly confirms the message content. First show the draft message and ask for confirmation.',
         input_schema: { type: 'object', properties: { userId: { type: 'string', description: 'Slack user ID' }, text: { type: 'string', description: 'Message text to send' } }, required: ['userId', 'text'] }
-      }
-    ,{name:"teams_list_chats",description:"List user's recent Teams chats with last message preview",input_schema:{type:"object",properties:{top:{type:"number",description:"Number of chats (max 50)"}}}},{name:"teams_get_chat_messages",description:"Get messages from a specific Teams chat",input_schema:{type:"object",properties:{chatId:{type:"string",description:"Chat ID"}},required:["chatId"]}},{name:"teams_list_teams_channels",description:"List joined teams and their channels",input_schema:{type:"object",properties:{}}},{name:"teams_get_channel_messages",description:"Get recent messages from a Teams channel",input_schema:{type:"object",properties:{teamId:{type:"string",description:"Team ID"},channelId:{type:"string",description:"Channel ID"}},required:["teamId","channelId"]}},{name:"google_drive_search",description:"Search files in Google Drive",input_schema:{type:"object",properties:{query:{type:"string",description:"Search query"}},required:["query"]}},{name:"google_drive_list",description:"List recent files in Google Drive",input_schema:{type:"object",properties:{pageSize:{type:"number",description:"Number of files (max 100)"},folderId:{type:"string",description:"Folder ID (optional)"}}}},{name:"google_drive_get_content",description:"Get text content of a Google Drive document",input_schema:{type:"object",properties:{fileId:{type:"string",description:"File ID"}},required:["fileId"]}},
-      // ===== GOOGLE DRIVE CREATE DOC =====
+      },
+      // ===== TEAMS TOOLS =====
+      {
+        name: 'teams_list_chats',
+        description: "List user's recent Teams chats with last message preview",
+        input_schema: { type: 'object', properties: { top: { type: 'number', description: 'Number of chats (max 50)' } } }
+      },
+      {
+        name: 'teams_get_chat_messages',
+        description: 'Get messages from a specific Teams chat',
+        input_schema: { type: 'object', properties: { chatId: { type: 'string', description: 'Chat ID' } }, required: ['chatId'] }
+      },
+      {
+        name: 'teams_list_teams_channels',
+        description: 'List joined teams and their channels',
+        input_schema: { type: 'object', properties: {} }
+      },
+      {
+        name: 'teams_get_channel_messages',
+        description: 'Get recent messages from a Teams channel',
+        input_schema: { type: 'object', properties: { teamId: { type: 'string', description: 'Team ID' }, channelId: { type: 'string', description: 'Channel ID' } }, required: ['teamId', 'channelId'] }
+      },
+      // ===== GOOGLE DRIVE TOOLS =====
+      {
+        name: 'google_drive_search',
+        description: 'Search files in Google Drive',
+        input_schema: { type: 'object', properties: { query: { type: 'string', description: 'Search query' } }, required: ['query'] }
+      },
+      {
+        name: 'google_drive_list',
+        description: 'List recent files in Google Drive',
+        input_schema: { type: 'object', properties: { pageSize: { type: 'number', description: 'Number of files (max 100)' }, folderId: { type: 'string', description: 'Folder ID (optional)' } } }
+      },
+      {
+        name: 'google_drive_get_content',
+        description: 'Get text content of a Google Drive document',
+        input_schema: { type: 'object', properties: { fileId: { type: 'string', description: 'File ID' } }, required: ['fileId'] }
+      },
       {
         name: 'google_drive_create_doc',
         description: 'Create a new Google Doc in Google Drive with specified content. Use when user asks to create a document, report, meeting notes, summary, etc. Returns a link to the created document. The content supports basic text formatting.',
@@ -682,53 +770,53 @@ export default async function handler(req, res) {
 
           case 'sharepoint_search_sites': {
             const q = input.query || '*';
-            const sr = await fetch('https://graph.microsoft.com/v1.0/sites?search=' + encodeURIComponent(q) + '&$top=10&$select=id,displayName,webUrl,description', { headers: { Authorization: 'Bearer ' + msToken } });
-            if (sr.ok) { const sd = await sr.json(); result = (sd.value || []).map(s => ({ id: s.id, name: s.displayName, url: s.webUrl, desc: s.description })); } else { result = { error: 'Failed to search sites' }; }
-            break;
+            const sr = await fetch('https://graph.microsoft.com/v1.0/sites?search=' + encodeURIComponent(q) + '&$top=10&$select=id,displayName,webUrl,description', { headers: mh });
+            if (sr.ok) { const sd = await sr.json(); return (sd.value || []).map(s => ({ id: s.id, name: s.displayName, url: s.webUrl, desc: s.description })); }
+            return { error: 'Failed to search sites' };
           }
           case 'sharepoint_list_files': {
             const sid = input.siteId;
             const fp = input.path ? ':/' + input.path + ':/children' : '/children';
-            const fr = await fetch('https://graph.microsoft.com/v1.0/sites/' + sid + '/drive/root' + fp + '?$top=50&$select=id,name,webUrl,size,lastModifiedDateTime,file,folder', { headers: { Authorization: 'Bearer ' + msToken } });
-            if (fr.ok) { const fd = await fr.json(); result = (fd.value || []).map(f => ({ id: f.id, name: f.name, url: f.webUrl, size: f.size, modified: f.lastModifiedDateTime, isFolder: !!f.folder })); } else { result = { error: 'Failed to list files' }; }
-            break;
+            const fr = await fetch('https://graph.microsoft.com/v1.0/sites/' + sid + '/drive/root' + fp + '?$top=50&$select=id,name,webUrl,size,lastModifiedDateTime,file,folder', { headers: mh });
+            if (fr.ok) { const fd = await fr.json(); return (fd.value || []).map(f => ({ id: f.id, name: f.name, url: f.webUrl, size: f.size, modified: f.lastModifiedDateTime, isFolder: !!f.folder })); }
+            return { error: 'Failed to list files' };
           }
           case 'sharepoint_search_files': {
             const sq = input.query;
-            const sfr = await fetch('https://graph.microsoft.com/v1.0/search/query', { method: 'POST', headers: { Authorization: 'Bearer ' + msToken, 'Content-Type': 'application/json' }, body: JSON.stringify({ requests: [{ entityTypes: ['driveItem'], query: { queryString: sq }, from: 0, size: 20 }] }) });
-            if (sfr.ok) { const sfd = await sfr.json(); const hits = sfd.value?.[0]?.hitsContainers?.[0]?.hits || []; result = hits.map(h => ({ name: h.resource?.name, url: h.resource?.webUrl, size: h.resource?.size, modified: h.resource?.lastModifiedDateTime })); } else { result = { error: 'Failed to search files' }; }
-            break;
+            const sfr = await fetch('https://graph.microsoft.com/v1.0/search/query', { method: 'POST', headers: mh, body: JSON.stringify({ requests: [{ entityTypes: ['driveItem'], query: { queryString: sq }, from: 0, size: 20 }] }) });
+            if (sfr.ok) { const sfd = await sfr.json(); const hits = sfd.value?.[0]?.hitsContainers?.[0]?.hits || []; return hits.map(h => ({ name: h.resource?.name, url: h.resource?.webUrl, size: h.resource?.size, modified: h.resource?.lastModifiedDateTime })); }
+            return { error: 'Failed to search files' };
           }
           case 'sharepoint_get_file_content': {
             const gsid = input.siteId;
             const gid = input.itemId;
-            const gm = await fetch('https://graph.microsoft.com/v1.0/sites/' + gsid + '/drive/items/' + gid + '?$select=id,name,webUrl,size,file,lastModifiedDateTime', { headers: { Authorization: 'Bearer ' + msToken } });
-            if (gm.ok) { const gmd = await gm.json(); const preview = await fetch('https://graph.microsoft.com/v1.0/sites/' + gsid + '/drive/items/' + gid + '/content', { headers: { Authorization: 'Bearer ' + msToken } }).then(r => r.text()).then(t => t.substring(0, 3000)).catch(() => '(binary file)'); result = { name: gmd.name, url: gmd.webUrl, size: gmd.size, modified: gmd.lastModifiedDateTime, contentPreview: preview }; } else { result = { error: 'Failed to get file' }; }
-            break;
+            const gm = await fetch('https://graph.microsoft.com/v1.0/sites/' + gsid + '/drive/items/' + gid + '?$select=id,name,webUrl,size,file,lastModifiedDateTime', { headers: mh });
+            if (gm.ok) { const gmd = await gm.json(); const preview = await fetch('https://graph.microsoft.com/v1.0/sites/' + gsid + '/drive/items/' + gid + '/content', { headers: mh }).then(r => r.text()).then(t => t.substring(0, 3000)).catch(() => '(binary file)'); return { name: gmd.name, url: gmd.webUrl, size: gmd.size, modified: gmd.lastModifiedDateTime, contentPreview: preview }; }
+            return { error: 'Failed to get file' };
           }
-          
+
           case 'teams_list_chats': {
             const top = input.top || 20;
-            const r = await fetch('https://graph.microsoft.com/v1.0/me/chats?$top='+top+'&$expand=lastMessagePreview&$orderby=lastMessagePreview/createdDateTime desc', {headers:{Authorization:'Bearer '+msToken}});
+            const r = await fetch('https://graph.microsoft.com/v1.0/me/chats?$top='+top+'&$expand=lastMessagePreview&$orderby=lastMessagePreview/createdDateTime desc', {headers: mh});
             if(!r.ok){const e=await r.text();return {error:e};}
             const d = await r.json();
             return {chats:(d.value||[]).map(ch=>({id:ch.id,topic:ch.topic||'(no topic)',type:ch.chatType,lastMsg:ch.lastMessagePreview?{from:ch.lastMessagePreview.from?.user?.displayName||'',body:(ch.lastMessagePreview.body?.content||'').replace(/<[^>]*>/g,'').substring(0,300),date:ch.lastMessagePreview.createdDateTime}:null}))};
           }
 
           case 'teams_get_chat_messages': {
-            const r = await fetch('https://graph.microsoft.com/v1.0/me/chats/'+input.chatId+'/messages?$top=20', {headers:{Authorization:'Bearer '+msToken}});
+            const r = await fetch('https://graph.microsoft.com/v1.0/me/chats/'+input.chatId+'/messages?$top=20', {headers: mh});
             if(!r.ok){const e=await r.text();return {error:e};}
             const d = await r.json();
             return {messages:(d.value||[]).map(m=>({from:m.from?.user?.displayName||'',body:(m.body?.content||'').replace(/<[^>]*>/g,'').substring(0,500),date:m.createdDateTime}))};
           }
 
           case 'teams_list_teams_channels': {
-            const tr = await fetch('https://graph.microsoft.com/v1.0/me/joinedTeams', {headers:{Authorization:'Bearer '+msToken}});
+            const tr = await fetch('https://graph.microsoft.com/v1.0/me/joinedTeams', {headers: mh});
             if(!tr.ok){const e=await tr.text();return {error:e};}
             const td = await tr.json();
             const results = [];
             for(const team of (td.value||[])){
-              const cr = await fetch('https://graph.microsoft.com/v1.0/teams/'+team.id+'/channels', {headers:{Authorization:'Bearer '+msToken}});
+              const cr = await fetch('https://graph.microsoft.com/v1.0/teams/'+team.id+'/channels', {headers: mh});
               if(!cr.ok) continue;
               const cd = await cr.json();
               results.push({teamId:team.id,teamName:team.displayName,channels:(cd.value||[]).map(ch=>({id:ch.id,name:ch.displayName}))});
@@ -737,7 +825,7 @@ export default async function handler(req, res) {
           }
 
           case 'teams_get_channel_messages': {
-            const r = await fetch('https://graph.microsoft.com/v1.0/teams/'+input.teamId+'/channels/'+input.channelId+'/messages?$top=20', {headers:{Authorization:'Bearer '+msToken}});
+            const r = await fetch('https://graph.microsoft.com/v1.0/teams/'+input.teamId+'/channels/'+input.channelId+'/messages?$top=20', {headers: mh});
             if(!r.ok){const e=await r.text();return {error:e};}
             const d = await r.json();
             return {messages:(d.value||[]).map(m=>({from:m.from?.user?.displayName||'',body:(m.body?.content||'').replace(/<[^>]*>/g,'').substring(0,500),date:m.createdDateTime}))};
@@ -745,7 +833,7 @@ export default async function handler(req, res) {
 
           case 'google_drive_search': {
             const q = encodeURIComponent("name contains '"+input.query+"' and trashed=false");
-            const r = await fetch('https://www.googleapis.com/drive/v3/files?q='+q+'&pageSize=20&orderBy=modifiedTime%20desc&fields=files%28id%2Cname%2CmimeType%2CmodifiedTime%2Cowners%2CwebViewLink%29', {headers:{Authorization:'Bearer '+googleToken}});
+            const r = await fetch('https://www.googleapis.com/drive/v3/files?q='+q+'&pageSize=20&orderBy=modifiedTime%20desc&fields=files%28id%2Cname%2CmimeType%2CmodifiedTime%2Cowners%2CwebViewLink%29', {headers: gh});
             if(!r.ok){const e=await r.text();return {error:e};}
             const d = await r.json();
             return {files:(d.files||[]).map(f=>({id:f.id,name:f.name,type:f.mimeType,modified:f.modifiedTime,link:f.webViewLink||''}))};
@@ -755,14 +843,13 @@ export default async function handler(req, res) {
             const ps = input.pageSize || 30;
             let q = 'trashed=false';
             if(input.folderId) q += " and '"+input.folderId+"' in parents";
-            const r = await fetch('https://www.googleapis.com/drive/v3/files?q='+encodeURIComponent(q)+'&pageSize='+ps+'&orderBy=modifiedTime%20desc&fields=files%28id%2Cname%2CmimeType%2CmodifiedTime%2Cowners%2CwebViewLink%29', {headers:{Authorization:'Bearer '+googleToken}});
+            const r = await fetch('https://www.googleapis.com/drive/v3/files?q='+encodeURIComponent(q)+'&pageSize='+ps+'&orderBy=modifiedTime%20desc&fields=files%28id%2Cname%2CmimeType%2CmodifiedTime%2Cowners%2CwebViewLink%29', {headers: gh});
             if(!r.ok){const e=await r.text();return {error:e};}
             const d = await r.json();
             return {files:(d.files||[]).map(f=>({id:f.id,name:f.name,type:f.mimeType,modified:f.modifiedTime,link:f.webViewLink||''}))};
           }
 
           case 'google_drive_create_doc': {
-            // Step 1: Create empty Google Doc
             const docMeta = { name: input.title, mimeType: 'application/vnd.google-apps.document' };
             if (input.folderId) docMeta.parents = [input.folderId];
             const createR = await fetch('https://www.googleapis.com/drive/v3/files', {
@@ -770,7 +857,6 @@ export default async function handler(req, res) {
             });
             const createD = await createR.json();
             if (!createR.ok) return { error: createD.error?.message || 'Failed to create document' };
-            // Step 2: Insert content using Google Docs API
             const docId = createD.id;
             const insertR = await fetch('https://docs.googleapis.com/v1/documents/' + docId + ':batchUpdate', {
               method: 'POST', headers: gh,
@@ -783,15 +869,15 @@ export default async function handler(req, res) {
           }
 
           case 'google_drive_get_content': {
-            const mr = await fetch('https://www.googleapis.com/drive/v3/files/'+input.fileId+'?fields=id%2Cname%2CmimeType%2CmodifiedTime', {headers:{Authorization:'Bearer '+googleToken}});
+            const mr = await fetch('https://www.googleapis.com/drive/v3/files/'+input.fileId+'?fields=id%2Cname%2CmimeType%2CmodifiedTime', {headers: gh});
             if(!mr.ok){const e=await mr.text();return {error:e};}
             const meta = await mr.json();
             let content = '';
             if(meta.mimeType && meta.mimeType.startsWith('application/vnd.google-apps.')){
-              const er = await fetch('https://www.googleapis.com/drive/v3/files/'+input.fileId+'/export?mimeType=text%2Fplain', {headers:{Authorization:'Bearer '+googleToken}});
+              const er = await fetch('https://www.googleapis.com/drive/v3/files/'+input.fileId+'/export?mimeType=text%2Fplain', {headers: gh});
               if(er.ok) content = (await er.text()).substring(0,5000);
             } else {
-              const dr = await fetch('https://www.googleapis.com/drive/v3/files/'+input.fileId+'?alt=media', {headers:{Authorization:'Bearer '+googleToken}});
+              const dr = await fetch('https://www.googleapis.com/drive/v3/files/'+input.fileId+'?alt=media', {headers: gh});
               if(dr.ok) content = (await dr.text()).substring(0,5000);
             }
             return {file:meta, content};
@@ -839,7 +925,6 @@ export default async function handler(req, res) {
           case 'slack_read_dm': {
             if (!slackToken) return { error: 'Slack not connected.' };
             const sh = { Authorization: 'Bearer ' + slackToken, 'Content-Type': 'application/json' };
-            // Open (or get existing) DM channel
             const openR = await fetch('https://slack.com/api/conversations.open', {
               method: 'POST', headers: sh,
               body: JSON.stringify({ users: input.userId })
@@ -848,11 +933,9 @@ export default async function handler(req, res) {
             if (!openD.ok) return { error: 'Cannot open DM: ' + (openD.error || 'unknown') };
             const channelId = openD.channel.id;
             const limit = Math.min(input.limit || 20, 50);
-            // Read history
             const histR = await fetch('https://slack.com/api/conversations.history?channel=' + channelId + '&limit=' + limit, { headers: sh });
             const histD = await histR.json();
             if (!histD.ok) return { error: 'Cannot read DM: ' + (histD.error || 'unknown') };
-            // Resolve user names
             const uids = [...new Set((histD.messages || []).map(m => m.user).filter(Boolean))];
             const userMap = {};
             for (const uid of uids.slice(0, 10)) {
@@ -862,26 +945,24 @@ export default async function handler(req, res) {
                 if (ud.ok) userMap[uid] = ud.user.real_name || ud.user.name;
               } catch {}
             }
-            const messages = (histD.messages || []).reverse().map(m => ({
+            const msgList = (histD.messages || []).reverse().map(m => ({
               from: userMap[m.user] || m.user || 'bot',
               text: (m.text || '').substring(0, 500),
               date: new Date(parseFloat(m.ts) * 1000).toLocaleString('ja-JP'),
               ts: m.ts
             }));
-            return { channelId, messages, count: messages.length };
+            return { channelId, messages: msgList, count: msgList.length };
           }
 
           case 'slack_send_dm': {
             if (!slackToken) return { error: 'Slack not connected.' };
             const sh = { Authorization: 'Bearer ' + slackToken, 'Content-Type': 'application/json' };
-            // Open DM channel
             const openR = await fetch('https://slack.com/api/conversations.open', {
               method: 'POST', headers: sh,
               body: JSON.stringify({ users: input.userId })
             });
             const openD = await openR.json();
             if (!openD.ok) return { error: 'Cannot open DM: ' + (openD.error || 'unknown') };
-            // Send message
             const sendR = await fetch('https://slack.com/api/chat.postMessage', {
               method: 'POST', headers: sh,
               body: JSON.stringify({ channel: openD.channel.id, text: input.text })
@@ -896,14 +977,11 @@ export default async function handler(req, res) {
           case 'weather_forecast': {
             const city = input.city || 'Tokyo';
             const days = Math.min(input.days || 3, 7);
-            // Common Japanese city name -> English mapping for geocoding
             const cityMap = {'東京':'Tokyo','大阪':'Osaka','名古屋':'Nagoya','京都':'Kyoto','福岡':'Fukuoka','札幌':'Sapporo','仙台':'Sendai','広島':'Hiroshima','横浜':'Yokohama','神戸':'Kobe','北九州':'Kitakyushu','千葉':'Chiba','さいたま':'Saitama','新潟':'Niigata','浜松':'Hamamatsu','静岡':'Shizuoka','岡山':'Okayama','熊本':'Kumamoto','鹿児島':'Kagoshima','那覇':'Naha','金沢':'Kanazawa','長崎':'Nagasaki','松山':'Matsuyama','高松':'Takamatsu','大分':'Oita','宮崎':'Miyazaki','富山':'Toyama','長野':'Nagano','岐阜':'Gifu','奈良':'Nara','和歌山':'Wakayama','滋賀':'Shiga','盛岡':'Morioka','秋田':'Akita','山形':'Yamagata','福島':'Fukushima','水戸':'Mito','宇都宮':'Utsunomiya','前橋':'Maebashi','甲府':'Kofu','福井':'Fukui','津':'Tsu','徳島':'Tokushima','高知':'Kochi','佐賀':'Saga','青森':'Aomori','山口':'Yamaguchi','松江':'Matsue','鳥取':'Tottori'};
             const searchCity = cityMap[city] || city;
-            // Geocode city name - try with language=ja first, then fallback to English name
             let geoR = await fetch('https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(searchCity) + '&count=3&language=ja');
             let geoD = await geoR.json();
             if ((!geoD.results || geoD.results.length === 0) && searchCity === city) {
-              // Try English name if Japanese didn't work
               geoR = await fetch('https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(city) + '&count=3&language=en');
               geoD = await geoR.json();
             }
@@ -911,7 +989,6 @@ export default async function handler(req, res) {
             const loc = geoD.results[0];
             const lat = loc.latitude, lon = loc.longitude;
             const locName = loc.name + (loc.admin1 ? ', ' + loc.admin1 : '') + (loc.country ? ', ' + loc.country : '');
-            // Get weather
             const wxR = await fetch(
               'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon +
               '&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m' +
@@ -920,19 +997,18 @@ export default async function handler(req, res) {
             );
             const wxD = await wxR.json();
             if (wxD.error) return { error: wxD.reason || 'Weather API error' };
-            // WMO Weather codes to Japanese
             const wmoCodes = {0:'快晴',1:'晴れ',2:'一部曇り',3:'曇り',45:'霧',48:'着氷性の霧',51:'弱い霧雨',53:'霧雨',55:'強い霧雨',61:'小雨',63:'雨',65:'大雨',66:'着氷性小雨',67:'着氷性雨',71:'小雪',73:'雪',75:'大雪',77:'霧雪',80:'にわか雨(弱)',81:'にわか雨',82:'にわか雨(激)',85:'にわか雪(弱)',86:'にわか雪(強)',95:'雷雨',96:'雷雨(雹あり)',99:'雷雨(大粒の雹)'};
-            const current = wxD.current;
+            const cur = wxD.current;
             const daily = wxD.daily;
             const result = {
               location: locName,
               current: {
-                temperature: current.temperature_2m + '°C',
-                feelsLike: current.apparent_temperature + '°C',
-                humidity: current.relative_humidity_2m + '%',
-                weather: wmoCodes[current.weather_code] || 'コード' + current.weather_code,
-                wind: current.wind_speed_10m + 'km/h',
-                precipitation: current.precipitation + 'mm'
+                temperature: cur.temperature_2m + '°C',
+                feelsLike: cur.apparent_temperature + '°C',
+                humidity: cur.relative_humidity_2m + '%',
+                weather: wmoCodes[cur.weather_code] || 'コード' + cur.weather_code,
+                wind: cur.wind_speed_10m + 'km/h',
+                precipitation: cur.precipitation + 'mm'
               },
               forecast: []
             };
@@ -951,10 +1027,9 @@ export default async function handler(req, res) {
             return result;
           }
 
-          // ----- Web Search (Google Custom Search or SearXNG) -----
+          // ----- Web Search (Google Custom Search or DuckDuckGo) -----
           case 'web_search': {
             const query = input.query || '';
-            // Try Google Custom Search if API key available
             const googleSearchKey = process.env.GOOGLE_SEARCH_API_KEY;
             const googleSearchCx = process.env.GOOGLE_SEARCH_CX;
             if (googleSearchKey && googleSearchCx) {
@@ -973,7 +1048,6 @@ export default async function handler(req, res) {
                 };
               }
             }
-            // Fallback: use DuckDuckGo instant answer API
             const ddgR = await fetch('https://api.duckduckgo.com/?q=' + encodeURIComponent(query) + '&format=json&no_html=1&skip_disambig=1');
             const ddgD = await ddgR.json();
             const results = [];
@@ -985,7 +1059,6 @@ export default async function handler(req, res) {
               }
             }
             if (results.length === 0) {
-              // Use Gemini's knowledge as fallback context
               return { results: [], message: 'Web search returned no results for: ' + query + '. Please answer based on your training knowledge and note the information may not be fully current.' };
             }
             return { results, query };
@@ -996,54 +1069,79 @@ export default async function handler(req, res) {
       } catch (e) { return { error: e.message }; }
     }
 
-    // ===== AI CONVERSATION LOOP (Gemini) =====
+    // ===== AI CONVERSATION LOOP (Claude via Vertex AI) =====
     const activeTools = tools.filter(t => {
-      // Weather and web search are always available (no auth needed)
       if (t.name === 'weather_forecast' || t.name === 'web_search') return true;
-      if (t.name.startsWith('gmail_') || t.name.startsWith('calendar_')) return !!googleToken;
+      if (t.name.startsWith('gmail_') || t.name.startsWith('calendar_') || t.name.startsWith('google_drive_')) return !!googleToken;
       if (t.name.startsWith('outlook_') || t.name.startsWith('sharepoint_') || t.name.startsWith('teams_')) return !!msToken;
-      if (t.name.startsWith('slack_') || t.name.startsWith('google_drive_')) return !!(slackToken || googleToken);
+      if (t.name.startsWith('slack_')) return !!slackToken;
       return !!(googleToken || msToken || slackToken);
     });
-    const geminiTools = [{ functionDeclarations: activeTools.map(t => ({ name: t.name, description: t.description, parameters: t.input_schema })) }];
-    const currentContents = messages.map(m => {
-      if (typeof m.content === 'string') return { role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] };
+
+    // Convert message history to Claude format
+    const claudeMessages = messages.map(m => {
+      if (typeof m.content === 'string') {
+        return { role: m.role === 'model' ? 'assistant' : m.role, content: m.content };
+      }
       if (Array.isArray(m.content)) {
-        const pts = [];
-        for (const c of m.content) { if (c.type === 'text') pts.push({ text: c.text }); else pts.push({ text: JSON.stringify(c) }); }
-        return { role: m.role === 'assistant' ? 'model' : 'user', parts: pts };
+        const textParts = m.content.filter(c => c.type === 'text').map(c => c.text).join('\n');
+        return { role: m.role === 'model' ? 'assistant' : m.role, content: textParts || JSON.stringify(m.content) };
       }
-      return { role: 'user', parts: [{ text: String(m.content || '') }] };
+      return { role: m.role === 'model' ? 'assistant' : m.role, content: String(m.content || '') };
     });
-    for (let i = 0; i < 4; i++) {
-      const reqBody = { contents: currentContents, generationConfig: { maxOutputTokens: 8192 } };
-      if (system) reqBody.systemInstruction = { parts: [{ text: system }] };
-      if (activeTools.length > 0) { reqBody.tools = geminiTools; reqBody.tool_config = { function_calling_config: { mode: 'AUTO' } }; }
-      const { data, model } = await callGemini(geminiKey, reqBody);
-      if (!data.candidates || !data.candidates[0]) {
-        return res.status(200).json({ content: [{ type: 'text', text: data.error ? data.error.message : JSON.stringify(data) }] });
+
+    // Claude tool format (already compatible with input_schema)
+    const claudeTools = activeTools.map(t => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.input_schema,
+    }));
+
+    // Orchestration loop: up to 8 iterations for complex tool chains
+    for (let i = 0; i < 8; i++) {
+      const reqBody = {
+        anthropic_version: 'vertex-2023-10-16',
+        max_tokens: 8192,
+        messages: claudeMessages,
+      };
+      if (system) reqBody.system = system;
+      if (claudeTools.length > 0) reqBody.tools = claudeTools;
+
+      const data = await callClaude(vertexToken, reqBody);
+
+      if (data.error) {
+        const errMsg = data.error.message || JSON.stringify(data.error);
+        return res.status(200).json({ content: [{ type: 'text', text: errMsg }] });
       }
-      const parts = data.candidates[0].content.parts || [];
-      const fcs = parts.filter(p => p.functionCall);
-      if (fcs.length > 0 && activeTools.length > 0) {
-        currentContents.push({ role: 'model', parts: parts });
-        const rps = [];
-        for (const part of fcs) {
-          const fc = part.functionCall;
-          const result = await executeTool(fc.name, fc.args, googleToken, msToken);
-          rps.push({ functionResponse: { name: fc.name, response: result } });
+
+      const content = data.content || [];
+      const toolUses = content.filter(c => c.type === 'tool_use');
+
+      if (toolUses.length > 0 && claudeTools.length > 0) {
+        // Add assistant message with tool_use blocks
+        claudeMessages.push({ role: 'assistant', content });
+
+        // Execute all tool calls and build tool_result
+        const toolResults = [];
+        for (const tu of toolUses) {
+          const result = await executeTool(tu.name, tu.input, googleToken, msToken);
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: tu.id,
+            content: JSON.stringify(result),
+          });
         }
-        currentContents.push({ role: 'user', parts: rps });
+        claudeMessages.push({ role: 'user', content: toolResults });
       } else {
-        const txt = parts.filter(p => p.text).map(p => p.text).join('');
-        const _dbg = { toolCount: activeTools.length, toolNames: activeTools.map(t=>t.name), model, hasFcs: fcs.length, partsTypes: parts.map(p=>Object.keys(p)) };
-        if (req.query.debug) return res.status(200).json({ content: [{ type: 'text', text: JSON.stringify(_dbg) }] });
+        // Final response — extract text
+        const txt = content.filter(c => c.type === 'text').map(c => c.text).join('');
         return res.status(200).json({ content: [{ type: 'text', text: txt || '' }] });
       }
     }
-    return res.status(200).json({ content: [{ type: 'text', text: 'Tool execution limit reached.' }] });
-  
+    return res.status(200).json({ content: [{ type: 'text', text: 'Tool execution limit reached. Please try a simpler request.' }] });
+
   } catch (e) {
+    console.error('Chat handler error:', e);
     return res.status(500).json({ error: e.message });
   }
 }
