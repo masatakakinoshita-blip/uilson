@@ -19,17 +19,16 @@ async function callGemini(apiKey, reqBody) {
   return { data: { error: { message: 'All Gemini models unavailable' } }, model: null };
 }
 
-// Tool category ID → human-readable tool list
-const TOOL_MAP = {
-  gmail: 'gmail_search, gmail_create_draft, gmail_send_draft, gmail_send_direct, gmail_trash, gmail_modify_labels, gmail_list_labels, gmail_get_attachments',
-  calendar: 'calendar_list_events, calendar_find_free_time, calendar_check_conflicts, calendar_create_event, calendar_update_event, calendar_delete_event',
-  drive: 'google_drive_search, google_drive_list, google_drive_get_content, google_drive_create_doc',
-  outlook: 'outlook_search_mail, outlook_create_draft, outlook_delete_mail, outlook_move_mail, outlook_mark_read, outlook_flag_mail, outlook_get_attachments, outlook_list_folders',
-  outlook_cal: 'outlook_list_events, outlook_calendar_create, outlook_calendar_update, outlook_calendar_delete',
-  teams: 'teams_list_chats, teams_get_chat_messages, teams_list_teams_channels, teams_get_channel_messages',
-  sharepoint: 'sharepoint_search_sites, sharepoint_list_files, sharepoint_search_files, sharepoint_get_file_content',
-  slack: 'slack_search_users, slack_read_dm, slack_send_dm',
-  web: 'web_search',
+// Action permission ID → human-readable description
+const ACTION_MAP = {
+  gmail_send: 'Gmailでメール送信・ドラフト作成 (gmail_create_draft, gmail_send_draft, gmail_send_direct)',
+  gmail_manage: 'Gmailの整理 (gmail_trash, gmail_modify_labels)',
+  calendar_write: 'Googleカレンダー予定の作成・変更・削除 (calendar_create_event, calendar_update_event, calendar_delete_event)',
+  drive_write: 'Google Docsの作成 (google_drive_create_doc)',
+  outlook_send: 'Outlookでメール送信・ドラフト作成 (outlook_create_draft)',
+  outlook_manage: 'Outlookの整理 (outlook_delete_mail, outlook_move_mail, outlook_mark_read, outlook_flag_mail)',
+  outlook_cal_write: 'Outlook予定の作成・変更・削除 (outlook_calendar_create, outlook_calendar_update, outlook_calendar_delete)',
+  slack_send: 'SlackでDM送信 (slack_send_dm)',
 };
 
 const GATE_LABELS = {
@@ -51,28 +50,36 @@ export default async function handler(req, res) {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
   if (!apiKey) return generateFallback(req, res);
 
-  const { name, goal, toolCategories, constraints, approvalGates, context } = req.body;
+  const { name, goal, actionPermissions, constraints, approvalGates, context } = req.body;
   if (!name || !goal) {
     return res.status(400).json({ error: 'name and goal are required' });
   }
 
-  const toolList = (toolCategories || []).map(tc => TOOL_MAP[tc] || tc).join('\n');
+  const actionList = (actionPermissions || []).map(ap => ACTION_MAP[ap] || ap).join('\n') || 'なし（読み取り専用モード）';
   const constraintList = (constraints || []).map((c, i) => `${i + 1}. ${c}`).join('\n') || 'なし';
   const gateList = (approvalGates || []).map(g => GATE_LABELS[g] || g).join('\n') || 'なし（全て自動実行可）';
 
   const systemPrompt = `You are an AI orchestration plan generator for UILSON, an enterprise AI business assistant.
 
-Given a skill definition (goal, tools, constraints, approval gates), generate:
-1. A detailed orchestration plan in Japanese that another AI can follow autonomously
+CRITICAL ARCHITECTURE RULE:
+- INFORMATION GATHERING (search/read) is ALWAYS unrestricted. The AI can freely use ALL search/read tools:
+  gmail_search, calendar_list_events, calendar_find_free_time, google_drive_search, google_drive_list, google_drive_get_content,
+  outlook_search_mail, outlook_list_events, outlook_list_folders, outlook_get_attachments,
+  teams_list_chats, teams_get_chat_messages, teams_list_teams_channels, teams_get_channel_messages,
+  sharepoint_search_sites, sharepoint_list_files, sharepoint_search_files, sharepoint_get_file_content,
+  slack_search_users, slack_read_dm, web_search, weather_forecast, gmail_list_labels, gmail_get_attachments
+- Only WRITE/SEND/CREATE/DELETE actions are restricted by permissions.
+
+Given a skill definition, generate:
+1. A detailed orchestration plan in Japanese
 2. Trigger keywords that should activate this skill
 
-The orchestration plan MUST follow the Plan→Execute→Observe pattern:
-- Break the goal into concrete sequential/parallel steps
-- For each step, specify which tool(s) to call and what to do with the results
-- Include decision points (if X then Y, else Z)
-- Include approval gates at the specified points
-- Include error handling (what to do if a tool fails)
-- End with a summary/output step
+The plan MUST:
+- Clearly separate information gathering (unrestricted) from actions (restricted)
+- Use the Plan→Execute→Observe pattern
+- Include specific tool names for each step
+- Include decision points and error handling
+- Include approval gates at specified points
 
 Output MUST be valid JSON:
 {
@@ -86,8 +93,8 @@ IMPORTANT: Respond ONLY with the JSON object, no markdown code blocks or extra t
 ゴール: ${goal}
 補足情報: ${context || 'なし'}
 
-使用可能ツール:
-${toolList}
+許可されたアクション（書き込み系）:
+${actionList}
 
 制約条件:
 ${constraintList}
@@ -95,8 +102,8 @@ ${constraintList}
 承認ゲート:
 ${gateList}
 
-上記の情報から、AIが自律的にこのタスクを実行できるオーケストレーション計画を生成してください。
-計画は具体的なツール名を使い、条件分岐とエラーハンドリングを含めてください。`;
+情報収集（検索・閲覧）は全サービスで常に許可。Web検索、天気APIも自由に使える。
+上記の情報から、AIが自律的にこのタスクを実行できるオーケストレーション計画を生成してください。`;
 
   try {
     const { data } = await callGemini(apiKey, {
@@ -133,11 +140,11 @@ ${gateList}
 }
 
 function generateFallback(req, res) {
-  const { name, goal, toolCategories, constraints, approvalGates, context } = req.body;
+  const { name, goal, actionPermissions, constraints, approvalGates, context } = req.body;
 
-  const toolNames = (toolCategories || []).map(tc => {
-    const names = { gmail: 'Gmail', calendar: 'カレンダー', drive: 'Google Drive', outlook: 'Outlook', outlook_cal: 'Outlookカレンダー', teams: 'Teams', sharepoint: 'SharePoint', slack: 'Slack', web: 'Web検索' };
-    return names[tc] || tc;
+  const actionNames = (actionPermissions || []).map(ap => {
+    const names = { gmail_send: 'Gmailで送信', gmail_manage: 'Gmail整理', calendar_write: 'カレンダー操作', drive_write: 'ドキュメント作成', outlook_send: 'Outlookで送信', outlook_manage: 'Outlook整理', outlook_cal_write: 'Outlook予定操作', slack_send: 'Slack DM送信' };
+    return names[ap] || ap;
   });
 
   const orchestration = `## オーケストレーション計画: ${name}
@@ -146,19 +153,27 @@ function generateFallback(req, res) {
 ${goal}
 ${context ? `\n### 補足\n${context}` : ''}
 
-### 実行フロー
+### Phase 1: 情報収集（全サービス自由にアクセス可能）
+1. ゴールに関連する情報を特定する
+2. 全接続サービスを横断的に検索する:
+   - Gmail/Outlook → メールを検索 (gmail_search, outlook_search_mail)
+   - カレンダー → 予定を確認 (calendar_list_events, outlook_list_events)
+   - Google Drive/SharePoint → ドキュメントを検索 (google_drive_search, sharepoint_search_files)
+   - Slack/Teams → メッセージを確認 (slack_read_dm, teams_get_chat_messages)
+   - Web検索 → 外部情報を取得 (web_search)
+   - 天気API → 天気情報を取得 (weather_forecast)
+3. エラー発生時: そのサービスをスキップし、他のサービスから取得を継続する
 
-**Phase 1: 情報収集**
-${toolNames.map((tn, i) => `${i + 1}. ${tn}から関連情報を取得する`).join('\n')}
-- エラー発生時: そのサービスをスキップし、他のサービスから取得を継続する
-
-**Phase 2: 分析・判断**
+### Phase 2: 分析・判断
 1. 収集した情報をゴールに照らし合わせて分析する
 2. 不足している情報があれば追加で取得する
 3. 結果を整理・構造化する
 
-**Phase 3: アクション実行**
-${(approvalGates || []).length > 0 ? (approvalGates || []).map(g => `- ⚠️ ${GATE_LABELS[g] || g}`).join('\n') : '- 結果をユーザーに提示する'}
+### Phase 3: アクション実行
+${actionNames.length > 0
+  ? `許可されたアクション:\n${actionNames.map(n => `- ✅ ${n}`).join('\n')}`
+  : '- このスキルは読み取り専用です。情報の収集・分析・提示のみ行います。'}
+${(approvalGates || []).length > 0 ? '\n\n承認ゲート:\n' + approvalGates.map(g => `- ⚠️ ${GATE_LABELS[g] || g}`).join('\n') : ''}
 
 ### 制約条件
 ${(constraints || []).length > 0 ? constraints.map(c => `- 🚫 ${c}`).join('\n') : '- 特になし'}

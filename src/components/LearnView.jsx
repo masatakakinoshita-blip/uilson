@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { TOOL_CATEGORIES, APPROVAL_GATE_OPTIONS } from "../hooks/useSkills";
+import { ACTION_PERMISSIONS, APPROVAL_GATE_OPTIONS } from "../hooks/useSkills";
 
 const V = {
   bg: "#F4F1EE", sb: "#FFFFFF", main: "#FAF8F6", card: "#FFFFFF",
@@ -45,7 +45,7 @@ function TeachTab({ skills, learningSkills, showWizard, setShowWizard, editingSk
     <div>
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ margin: "0 0 8px 0", fontSize: 22, fontWeight: 700, color: V.t1 }}>🧠 AIにワークフローを教える</h1>
-        <p style={{ margin: "0 0 16px 0", fontSize: 14, color: V.t3, lineHeight: 1.6 }}>ゴールを定義し、使うツールと制約を設定すると、AIが自律的にタスクを実行します。</p>
+        <p style={{ margin: "0 0 16px 0", fontSize: 14, color: V.t3, lineHeight: 1.6 }}>ゴールを定義し、アクション権限と制約を設定すると、AIが自律的にタスクを実行します。情報収集は常にすべてのサービスを使えます。</p>
         <button onClick={() => setShowWizard(true)} style={{ padding: "12px 20px", backgroundColor: V.accent, color: V.white, border: "none", borderRadius: 8, cursor: "pointer", fontSize: 15, fontWeight: 600 }}>＋ 新しいスキルを作成</button>
       </div>
       {learningSkills.length > 0 && (
@@ -70,8 +70,8 @@ function TeachTab({ skills, learningSkills, showWizard, setShowWizard, editingSk
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
           {[
             { step: "①", title: "ゴール定義", desc: "AIに達成してほしい目標を記述" },
-            { step: "②", title: "ツール選択", desc: "使用を許可するサービスを選択" },
-            { step: "③", title: "制約と承認", desc: "やってはいけないことと確認ポイントを設定" },
+            { step: "②", title: "アクション許可", desc: "送信・作成・削除の許可範囲を設定" },
+            { step: "③", title: "制約と承認", desc: "やってはいけないことと確認ポイント" },
             { step: "④", title: "AI生成→有効化", desc: "AIがオーケストレーション計画を生成" },
           ].map((item, idx) => (
             <div key={idx} style={{ backgroundColor: V.card, border: `1px solid ${V.border}`, borderRadius: 8, padding: 16, textAlign: "center" }}>
@@ -104,53 +104,53 @@ const TEMPLATES = [
   {
     icon: "📋",
     name: "会議準備アシスト",
-    description: "次の会議までに関連メール・ドキュメントを収集し、アジェンダ案を自動作成",
+    description: "次の会議に関連する情報を全サービスから収集し、アジェンダ案を自動作成",
     data: {
       name: "会議準備アシスト",
-      goal: "次の会議の参加者・議題に関連する情報をメール・ドキュメント・カレンダーから収集し、アジェンダ案と要点サマリーを作成する",
-      toolCategories: ["gmail", "calendar", "drive"],
+      goal: "次の会議の参加者・議題に関連する情報をメール・ドキュメント・カレンダー・Slackから収集し、アジェンダ案と要点サマリーを作成する",
+      actionPermissions: [],
       constraints: ["情報収集のみ行い、メールの送信やカレンダーの変更は行わない", "機密性の高い内容は要約に含めず、リンクのみ提示する"],
       approvalGates: ["final_output"],
-      context: "定例会議やプロジェクトミーティングの事前準備に使用",
+      context: "定例会議やプロジェクトミーティングの事前準備に使用。全サービスから情報を自由に収集してよい。",
     },
   },
   {
     icon: "📧",
     name: "メールトリアージ",
-    description: "未読メールを自動分類し、重要度別に整理。返信ドラフトも自動作成",
+    description: "未読メールを全サービス横断で分類し、重要度別に整理。返信ドラフトも自動作成",
     data: {
       name: "メールトリアージ",
       goal: "未読メールをスキャンし、緊急度（高・中・低）に分類する。高の場合は返信ドラフトを作成し、中は要約を提示、低はスキップする",
-      toolCategories: ["gmail"],
+      actionPermissions: ["gmail_send", "outlook_send"],
       constraints: ["メールの削除は絶対にしない", "返信はドラフト作成のみ、自動送信しない", "個人的なメールはスキップする"],
       approvalGates: ["send_email", "final_output"],
-      context: "朝のメール確認時や大量の未読を処理したい時に使用",
+      context: "朝のメール確認時に使用。カレンダーやSlackも参照して文脈を補完してよい。",
     },
   },
   {
     icon: "📊",
     name: "週次レポート作成",
-    description: "メール・カレンダー・Slackから1週間の活動を集約し、レポートを自動生成",
+    description: "全サービスから1週間の活動を集約し、Google Docsにレポートを自動生成",
     data: {
       name: "週次レポート作成",
-      goal: "過去1週間のカレンダーイベント、送受信メール、Slackメッセージから業務活動を収集し、進捗・達成事項・来週の予定をまとめたレポートをGoogle Docsに作成する",
-      toolCategories: ["gmail", "calendar", "slack", "drive"],
+      goal: "過去1週間のカレンダーイベント、送受信メール、Slackメッセージ、天気、ニュースなどから業務活動を収集し、進捗・達成事項・来週の予定をまとめたレポートをGoogle Docsに作成する",
+      actionPermissions: ["drive_write"],
       constraints: ["プライベートな予定やメールはレポートに含めない", "他人のメッセージは要約のみ、原文を転載しない"],
       approvalGates: ["create_document", "final_output"],
-      context: "毎週金曜日に上司やチームに提出する週次報告に使用",
+      context: "毎週金曜日に上司やチームに提出する週次報告に使用。Web検索で業界ニュースも補完する。",
     },
   },
   {
-    icon: "🔍",
-    name: "横断検索＆サマリー",
-    description: "全接続サービスからキーワードで一括検索し、結果をまとめて提示",
+    icon: "🌅",
+    name: "朝のブリーフィング",
+    description: "今日の予定・天気・ニュース・未読メールをまとめて報告",
     data: {
-      name: "横断検索＆サマリー",
-      goal: "ユーザーが指定したキーワードで、Gmail・Drive・カレンダー・Slack・Outlook・SharePointを横断検索し、関連度の高い結果をサービス別に整理して提示する",
-      toolCategories: ["gmail", "calendar", "drive", "outlook", "slack", "sharepoint", "web"],
-      constraints: ["検索のみ行い、データの変更・削除は一切しない", "各サービスから最大10件まで取得し、関連度順にソートする"],
+      name: "朝のブリーフィング",
+      goal: "今日のカレンダー予定、天気予報、主要ニュース、未読メールの要約、Slackの未読メッセージをまとめて朝のブリーフィングとして報告する",
+      actionPermissions: [],
+      constraints: ["情報の閲覧・収集のみ行う", "メール・メッセージの送信や予定の変更は一切しない"],
       approvalGates: [],
-      context: "プロジェクト名や取引先名で情報を横断的に探したい時に使用",
+      context: "毎朝の業務開始時に使用。全サービス＋Web検索＋天気APIを横断して情報を収集する。",
     },
   },
 ];
@@ -160,7 +160,7 @@ function SkillWizard({ skill: initialSkill, onClose, onCreateSkill, onUpdateSkil
   const [skillId, setSkillId] = useState(initialSkill?.id || null);
   const [name, setName] = useState(initialSkill?.name || "");
   const [goal, setGoal] = useState(initialSkill?.goal || "");
-  const [toolCategories, setToolCategories] = useState(initialSkill?.toolCategories || []);
+  const [actionPermissions, setActionPermissions] = useState(initialSkill?.actionPermissions || []);
   const [constraints, setConstraints] = useState(initialSkill?.constraints || []);
   const [currentConstraint, setCurrentConstraint] = useState("");
   const [approvalGates, setApprovalGates] = useState(initialSkill?.approvalGates || []);
@@ -185,13 +185,12 @@ function SkillWizard({ skill: initialSkill, onClose, onCreateSkill, onUpdateSkil
   };
 
   const handleStep2 = () => {
-    if (toolCategories.length === 0) return;
-    if (skillId) onUpdateSkill(skillId, { toolCategories, step: 3 });
+    if (skillId) onUpdateSkill(skillId, { actionPermissions, step: 3 });
     setStep(3);
   };
 
-  const toggleTool = (catId) => {
-    setToolCategories(prev => prev.includes(catId) ? prev.filter(t => t !== catId) : [...prev, catId]);
+  const toggleAction = (permId) => {
+    setActionPermissions(prev => prev.includes(permId) ? prev.filter(t => t !== permId) : [...prev, permId]);
   };
 
   const handleAddConstraint = () => {
@@ -218,7 +217,7 @@ function SkillWizard({ skill: initialSkill, onClose, onCreateSkill, onUpdateSkil
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name, goal, toolCategories, constraints, approvalGates, context,
+          name, goal, actionPermissions, constraints, approvalGates, context,
         }),
       });
       const data = await res.json();
@@ -234,18 +233,23 @@ function SkillWizard({ skill: initialSkill, onClose, onCreateSkill, onUpdateSkil
     setGenerating(false);
 
     function useFallback() {
-      const toolNames = toolCategories.map(tc => {
-        const cat = TOOL_CATEGORIES.find(c => c.id === tc);
-        return cat ? cat.label : tc;
-      }).join(", ");
+      const actionNames = actionPermissions.map(apId => {
+        const perm = ACTION_PERMISSIONS.find(p => p.id === apId);
+        return perm ? perm.label : apId;
+      });
       setOrchestration(
         `## オーケストレーション計画: ${name}\n\n` +
         `### ゴール\n${goal}\n\n` +
+        `### 情報収集（制限なし）\n` +
+        `全ての接続サービス（Gmail, Calendar, Drive, Outlook, Slack, Teams, SharePoint）および\nWeb検索・天気APIを自由に使って、ゴール達成に必要な情報を収集する。\n\n` +
         `### 実行手順\n` +
-        `1. ユーザーのリクエストを分析し、必要な情報を特定する\n` +
-        `2. ${toolNames} を使って情報を収集する\n` +
+        `1. ユーザーのリクエストを分析し、ゴール達成に必要な情報を特定する\n` +
+        `2. 全ての利用可能なサービスから関連情報を収集する\n` +
         `3. 収集した情報を分析・整理する\n` +
-        (approvalGates.length > 0 ? `4. ユーザーに確認を取る（承認ゲート）\n5. 承認された場合、最終アクションを実行する\n` : `4. 結果をユーザーに提示する\n`) +
+        (actionNames.length > 0
+          ? `4. 許可されたアクション（${actionNames.join(", ")}）を実行する\n`
+          : `4. 結果をユーザーに提示する（読み取り専用モード）\n`) +
+        (approvalGates.length > 0 ? `5. 承認ゲートで確認を取る\n` : "") +
         `\n### 制約条件\n` +
         (constraints.length > 0 ? constraints.map(c => `- ${c}`).join("\n") : "- 特になし")
       );
@@ -271,40 +275,47 @@ function SkillWizard({ skill: initialSkill, onClose, onCreateSkill, onUpdateSkil
           <h2 style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 700, color: V.t1 }}>① ゴールを定義する</h2>
           <p style={{ margin: "0 0 20px", fontSize: 13, color: V.t3 }}>AIに「何を達成してほしいか」を具体的に記述してください。</p>
           <label style={{ display: "block", marginBottom: 6, fontSize: 13, fontWeight: 600, color: V.t2 }}>スキル名 *</label>
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="例: 会議準備アシスト" style={{ ...inputStyle, marginBottom: 16 }} autoFocus />
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="例: 朝のブリーフィング" style={{ ...inputStyle, marginBottom: 16 }} autoFocus />
           <label style={{ display: "block", marginBottom: 6, fontSize: 13, fontWeight: 600, color: V.t2 }}>ゴール（AIが達成すべき目標） *</label>
-          <textarea value={goal} onChange={e => setGoal(e.target.value)} placeholder="例: 次の会議の参加者・議題に関連する情報をメール・ドキュメントから収集し、アジェンダ案を作成する" rows={4} style={{ ...inputStyle, marginBottom: 20, resize: "vertical" }} />
+          <textarea value={goal} onChange={e => setGoal(e.target.value)} placeholder="例: 今日の予定・天気・ニュース・未読メールをまとめて報告する" rows={4} style={{ ...inputStyle, marginBottom: 20, resize: "vertical" }} />
           <button onClick={handleStep1} disabled={!name.trim() || !goal.trim()} style={{ padding: "12px 24px", backgroundColor: name.trim() && goal.trim() ? V.accent : V.border, color: V.white, border: "none", borderRadius: 8, cursor: name.trim() && goal.trim() ? "pointer" : "default", fontSize: 14, fontWeight: 600 }}>次へ →</button>
         </div>
       )}
 
-      {/* Step 2: Tool Selection */}
+      {/* Step 2: Action Permissions */}
       {step === 2 && (
         <div style={{ maxWidth: 640 }}>
-          <h2 style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 700, color: V.t1 }}>② 使用ツールを選択</h2>
-          <p style={{ margin: "0 0 20px", fontSize: 13, color: V.t3 }}>このスキルでAIが使用を許可されるサービスを選んでください。</p>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 24 }}>
-            {TOOL_CATEGORIES.map(cat => {
-              const selected = toolCategories.includes(cat.id);
+          <h2 style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 700, color: V.t1 }}>② アクション権限を設定</h2>
+          <p style={{ margin: "0 0 8px", fontSize: 13, color: V.t3 }}>AIが<strong>書き込み・送信・作成・削除</strong>できる範囲を設定します。</p>
+          <div style={{ padding: "10px 14px", backgroundColor: V.accent + "08", borderRadius: 8, fontSize: 12, color: V.accent, marginBottom: 20, lineHeight: 1.6 }}>
+            💡 情報収集（検索・閲覧）は全サービスで常に許可されています。ここで設定するのは「変更を加える」アクションのみです。何も選ばなければ読み取り専用になります。
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10, marginBottom: 24 }}>
+            {ACTION_PERMISSIONS.map(perm => {
+              const selected = actionPermissions.includes(perm.id);
               return (
-                <button key={cat.id} onClick={() => toggleTool(cat.id)} style={{
-                  padding: "14px 12px", borderRadius: 8, cursor: "pointer", textAlign: "center", transition: "all 0.15s",
-                  backgroundColor: selected ? V.accent + "15" : V.card,
-                  border: `2px solid ${selected ? V.accent : V.border}`,
+                <button key={perm.id} onClick={() => toggleAction(perm.id)} style={{
+                  padding: "14px 12px", borderRadius: 8, cursor: "pointer", textAlign: "left", transition: "all 0.15s",
+                  backgroundColor: selected ? V.green + "10" : V.card,
+                  border: `2px solid ${selected ? V.green : V.border}`,
                 }}>
-                  <div style={{ fontSize: 24, marginBottom: 6 }}>{cat.icon}</div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: selected ? V.accent : V.t2 }}>{cat.label}</div>
-                  <div style={{ fontSize: 11, color: V.t4, marginTop: 2 }}>{cat.tools.length}ツール</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                    <span style={{ fontSize: 18 }}>{perm.icon}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: selected ? V.green : V.t2 }}>{perm.label}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: V.t4 }}>{perm.description}</div>
                 </button>
               );
             })}
           </div>
-          <div style={{ padding: "10px 14px", backgroundColor: toolCategories.length > 0 ? V.green + "10" : V.orange + "10", borderRadius: 8, fontSize: 13, color: toolCategories.length > 0 ? V.green : V.orange, marginBottom: 20 }}>
-            {toolCategories.length > 0 ? `✓ ${toolCategories.length}カテゴリ選択済み` : "1つ以上のツールカテゴリを選択してください"}
+          <div style={{ padding: "10px 14px", backgroundColor: V.main, borderRadius: 8, fontSize: 13, color: V.t2, marginBottom: 20 }}>
+            {actionPermissions.length === 0
+              ? "🔒 読み取り専用モード — 情報収集のみ（最も安全）"
+              : `✅ ${actionPermissions.length}件のアクションを許可`}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={() => setStep(1)} style={{ padding: "12px 20px", backgroundColor: "transparent", color: V.t3, border: `1px solid ${V.border}`, borderRadius: 8, cursor: "pointer", fontSize: 14 }}>← 戻る</button>
-            <button onClick={handleStep2} disabled={toolCategories.length === 0} style={{ padding: "12px 24px", backgroundColor: toolCategories.length > 0 ? V.accent : V.border, color: V.white, border: "none", borderRadius: 8, cursor: toolCategories.length > 0 ? "pointer" : "default", fontSize: 14, fontWeight: 600 }}>次へ →</button>
+            <button onClick={handleStep2} style={{ padding: "12px 24px", backgroundColor: V.accent, color: V.white, border: "none", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 600 }}>次へ →</button>
           </div>
         </div>
       )}
@@ -369,14 +380,14 @@ function SkillWizard({ skill: initialSkill, onClose, onCreateSkill, onUpdateSkil
         </div>
       )}
 
-      {/* Step 4: Review generated orchestration */}
+      {/* Step 4: Review */}
       {step === 4 && generating && (
         <div style={{ maxWidth: 500, textAlign: "center", padding: "40px 0" }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>🧠</div>
           <h2 style={{ margin: "0 0 8px", fontSize: 20, fontWeight: 700, color: V.t1 }}>オーケストレーション計画を生成中...</h2>
-          <p style={{ margin: "0 0 24px", fontSize: 14, color: V.t3 }}>ゴールとツールから最適な実行計画を組み立てています</p>
+          <p style={{ margin: "0 0 24px", fontSize: 14, color: V.t3 }}>ゴールとアクション権限から最適な実行計画を組み立てています</p>
           <div style={{ display: "flex", flexDirection: "column", gap: 12, textAlign: "left", maxWidth: 360, margin: "0 auto" }}>
-            {["ゴールを分析中", "ツール間の依存関係を解析中", "実行ステップを構成中", "承認ゲートを組み込み中"].map((text, idx) => (
+            {["ゴールを分析中", "情報収集戦略を設計中", "アクション計画を構成中", "承認ゲートを組み込み中"].map((text, idx) => (
               <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span style={{ color: V.orange, animation: "pulse 1s infinite" }}>●</span>
                 <span style={{ fontSize: 13, color: V.t3 }}>{text}</span>
@@ -395,10 +406,14 @@ function SkillWizard({ skill: initialSkill, onClose, onCreateSkill, onUpdateSkil
             {/* Summary */}
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
               <span style={{ padding: "3px 10px", borderRadius: 12, fontSize: 11, fontWeight: 600, backgroundColor: V.accent + "15", color: V.accent }}>🎯 {name}</span>
-              {toolCategories.map(tc => {
-                const cat = TOOL_CATEGORIES.find(c => c.id === tc);
-                return cat ? <span key={tc} style={{ padding: "3px 10px", borderRadius: 12, fontSize: 11, backgroundColor: V.green + "15", color: V.green }}>{cat.icon} {cat.label}</span> : null;
-              })}
+              <span style={{ padding: "3px 10px", borderRadius: 12, fontSize: 11, backgroundColor: V.teal + "15", color: V.teal }}>🔍 全サービス検索可</span>
+              {actionPermissions.length === 0
+                ? <span style={{ padding: "3px 10px", borderRadius: 12, fontSize: 11, backgroundColor: V.t4 + "20", color: V.t3 }}>🔒 読み取り専用</span>
+                : actionPermissions.map(apId => {
+                  const perm = ACTION_PERMISSIONS.find(p => p.id === apId);
+                  return perm ? <span key={apId} style={{ padding: "3px 10px", borderRadius: 12, fontSize: 11, backgroundColor: V.green + "15", color: V.green }}>{perm.icon} {perm.label}</span> : null;
+                })
+              }
               {approvalGates.length > 0 && <span style={{ padding: "3px 10px", borderRadius: 12, fontSize: 11, backgroundColor: V.orange + "15", color: V.orange }}>⚠️ 承認ゲート×{approvalGates.length}</span>}
             </div>
 
@@ -434,11 +449,14 @@ function SkillWizard({ skill: initialSkill, onClose, onCreateSkill, onUpdateSkil
           <p style={{ margin: "0 0 24px", fontSize: 14, color: V.t3 }}>チャットでゴールに関連するリクエストをすると、AIが自律的にこのスキルを実行します。</p>
           <div style={{ backgroundColor: V.main, borderRadius: 8, padding: 16, marginBottom: 24, textAlign: "left" }}>
             <div style={{ fontSize: 13, color: V.t2, lineHeight: 1.8 }}>
+              <div>✓ 全サービスから自由に情報収集</div>
               <div>✓ Plan→Execute→Observe ループで自律実行</div>
-              <div>✓ 許可されたツールのみ使用</div>
+              {actionPermissions.length > 0
+                ? <div>✓ {actionPermissions.length}件のアクション（書き込み）を許可</div>
+                : <div>✓ 読み取り専用モード（最も安全）</div>
+              }
               {constraints.length > 0 && <div>✓ {constraints.length}件の制約条件を遵守</div>}
               {approvalGates.length > 0 && <div>✓ {approvalGates.length}箇所で人間の承認を要求</div>}
-              <div>✓ 「スキル一覧」タブで管理・一時停止可能</div>
             </div>
           </div>
           <button onClick={onClose} style={{ padding: "12px 24px", backgroundColor: V.accent, color: V.white, border: "none", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 600 }}>完了</button>
@@ -491,10 +509,7 @@ function SkillSection({ title, badge, skills, onToggleSkill, onDeleteSkill, setE
 function SkillCard({ skill, onToggle, onDelete, onEdit }) {
   const isActive = skill.status === "active";
   const created = skill.createdAt ? new Date(skill.createdAt).toLocaleDateString("ja-JP") : "—";
-  const toolCats = (skill.toolCategories || []).map(tc => {
-    const cat = TOOL_CATEGORIES.find(c => c.id === tc);
-    return cat ? cat.icon : "";
-  }).join(" ");
+  const permCount = (skill.actionPermissions || []).length;
 
   return (
     <div style={{ backgroundColor: V.card, border: `1px solid ${isActive ? V.green + "40" : V.border}`, borderRadius: 8, padding: 16 }}>
@@ -508,9 +523,13 @@ function SkillCard({ skill, onToggle, onDelete, onEdit }) {
       </div>
       {skill.goal && <div style={{ fontSize: 12, color: V.t3, marginBottom: 8, lineHeight: 1.4 }}>{skill.goal.substring(0, 80)}{skill.goal.length > 80 ? "..." : ""}</div>}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-        {toolCats && <span style={{ fontSize: 12 }}>{toolCats}</span>}
-        {(skill.approvalGates || []).length > 0 && <span style={{ padding: "1px 6px", borderRadius: 8, fontSize: 10, backgroundColor: V.orange + "15", color: V.orange }}>承認×{skill.approvalGates.length}</span>}
-        {(skill.constraints || []).length > 0 && <span style={{ padding: "1px 6px", borderRadius: 8, fontSize: 10, backgroundColor: V.red + "15", color: V.red }}>制約×{skill.constraints.length}</span>}
+        <span style={{ padding: "1px 6px", borderRadius: 8, fontSize: 10, backgroundColor: V.teal + "15", color: V.teal }}>🔍 全サービス検索</span>
+        {permCount > 0
+          ? <span style={{ padding: "1px 6px", borderRadius: 8, fontSize: 10, backgroundColor: V.green + "15", color: V.green }}>✅ アクション×{permCount}</span>
+          : <span style={{ padding: "1px 6px", borderRadius: 8, fontSize: 10, backgroundColor: V.t4 + "15", color: V.t3 }}>🔒 読み取り専用</span>
+        }
+        {(skill.approvalGates || []).length > 0 && <span style={{ padding: "1px 6px", borderRadius: 8, fontSize: 10, backgroundColor: V.orange + "15", color: V.orange }}>⚠️ 承認×{skill.approvalGates.length}</span>}
+        {(skill.constraints || []).length > 0 && <span style={{ padding: "1px 6px", borderRadius: 8, fontSize: 10, backgroundColor: V.red + "15", color: V.red }}>🚫 制約×{skill.constraints.length}</span>}
       </div>
       <div style={{ fontSize: 11, color: V.t4, display: "flex", justifyContent: "space-between", borderTop: `1px solid ${V.border}`, paddingTop: 10, marginBottom: 10 }}>
         <span>作成: {created}</span><span>実行: {skill.usageCount || 0}回</span>

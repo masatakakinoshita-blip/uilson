@@ -2,70 +2,72 @@ import { useState, useEffect, useCallback } from "react";
 
 const STORAGE_KEY = "uilson_skills";
 
-// Available tool categories that skills can use
-export const TOOL_CATEGORIES = [
+// Action permissions: services where the AI can WRITE/SEND/CREATE/DELETE
+// Reading/searching is ALWAYS allowed on all connected services
+export const ACTION_PERMISSIONS = [
   {
-    id: "gmail",
-    label: "Gmail",
+    id: "gmail_send",
+    label: "Gmailで送信",
     icon: "📧",
-    tools: ["gmail_search", "gmail_create_draft", "gmail_send_draft", "gmail_send_direct", "gmail_trash", "gmail_modify_labels", "gmail_list_labels", "gmail_get_attachments"],
+    description: "メールの送信・ドラフト作成",
+    actions: ["gmail_create_draft", "gmail_send_draft", "gmail_send_direct"],
     requiresAuth: "google",
   },
   {
-    id: "calendar",
-    label: "Googleカレンダー",
+    id: "gmail_manage",
+    label: "Gmailを整理",
+    icon: "🗂️",
+    description: "メールの削除・ラベル変更・既読/未読",
+    actions: ["gmail_trash", "gmail_modify_labels"],
+    requiresAuth: "google",
+  },
+  {
+    id: "calendar_write",
+    label: "Google予定を操作",
     icon: "📅",
-    tools: ["calendar_list_events", "calendar_find_free_time", "calendar_check_conflicts", "calendar_create_event", "calendar_update_event", "calendar_delete_event"],
+    description: "予定の作成・変更・削除",
+    actions: ["calendar_create_event", "calendar_update_event", "calendar_delete_event"],
     requiresAuth: "google",
   },
   {
-    id: "drive",
-    label: "Google Drive",
-    icon: "📁",
-    tools: ["google_drive_search", "google_drive_list", "google_drive_get_content", "google_drive_create_doc"],
+    id: "drive_write",
+    label: "Driveにドキュメント作成",
+    icon: "📝",
+    description: "Google Docsの新規作成",
+    actions: ["google_drive_create_doc"],
     requiresAuth: "google",
   },
   {
-    id: "outlook",
-    label: "Outlook",
+    id: "outlook_send",
+    label: "Outlookで送信",
     icon: "📨",
-    tools: ["outlook_search_mail", "outlook_create_draft", "outlook_delete_mail", "outlook_move_mail", "outlook_mark_read", "outlook_flag_mail", "outlook_get_attachments", "outlook_list_folders"],
+    description: "メールの送信・ドラフト作成",
+    actions: ["outlook_create_draft"],
     requiresAuth: "microsoft",
   },
   {
-    id: "outlook_cal",
-    label: "Outlookカレンダー",
+    id: "outlook_manage",
+    label: "Outlookを整理",
+    icon: "📋",
+    description: "メールの移動・削除・フラグ・既読",
+    actions: ["outlook_delete_mail", "outlook_move_mail", "outlook_mark_read", "outlook_flag_mail"],
+    requiresAuth: "microsoft",
+  },
+  {
+    id: "outlook_cal_write",
+    label: "Outlook予定を操作",
     icon: "🗓️",
-    tools: ["outlook_list_events", "outlook_calendar_create", "outlook_calendar_update", "outlook_calendar_delete"],
+    description: "Outlook予定の作成・変更・削除",
+    actions: ["outlook_calendar_create", "outlook_calendar_update", "outlook_calendar_delete"],
     requiresAuth: "microsoft",
   },
   {
-    id: "teams",
-    label: "Teams",
+    id: "slack_send",
+    label: "SlackでDM送信",
     icon: "💬",
-    tools: ["teams_list_chats", "teams_get_chat_messages", "teams_list_teams_channels", "teams_get_channel_messages"],
-    requiresAuth: "microsoft",
-  },
-  {
-    id: "sharepoint",
-    label: "SharePoint",
-    icon: "🏢",
-    tools: ["sharepoint_search_sites", "sharepoint_list_files", "sharepoint_search_files", "sharepoint_get_file_content"],
-    requiresAuth: "microsoft",
-  },
-  {
-    id: "slack",
-    label: "Slack",
-    icon: "💼",
-    tools: ["slack_search_users", "slack_read_dm", "slack_send_dm"],
+    description: "Slackでダイレクトメッセージを送信",
+    actions: ["slack_send_dm"],
     requiresAuth: "slack",
-  },
-  {
-    id: "web",
-    label: "Web検索",
-    icon: "🔍",
-    tools: ["web_search"],
-    requiresAuth: null,
   },
 ];
 
@@ -109,7 +111,7 @@ export default function useSkills() {
       id: generateId(),
       name: data.name || "",
       goal: data.goal || "",
-      toolCategories: data.toolCategories || [],
+      actionPermissions: data.actionPermissions || [],
       constraints: data.constraints || [],
       approvalGates: data.approvalGates || [],
       context: data.context || "",
@@ -161,18 +163,26 @@ export default function useSkills() {
     let prompt = "\n\n## ACTIVE SKILL ORCHESTRATIONS (autonomous execution blueprints):\n";
     prompt += "When user's request matches a skill's triggers/goal, follow the orchestration plan autonomously.\n";
     prompt += "Use the Plan→Execute→Observe loop: analyze the goal, plan tool calls, execute them, observe results, adjust plan if needed.\n";
+    prompt += "IMPORTANT: You can ALWAYS use ALL read/search tools (gmail_search, calendar_list_events, web_search, weather_forecast, google_drive_search, outlook_search_mail, slack_read_dm, etc.) regardless of skill permissions. Permissions only restrict WRITE actions.\n";
     prompt += "ALWAYS respect approval gates — pause and ask the user before taking gated actions.\n\n";
 
     active.forEach((s) => {
       prompt += `### SKILL: ${s.name}\n`;
       prompt += `**GOAL**: ${s.goal}\n`;
       prompt += `**TRIGGERS**: ${s.triggers.join(", ") || "auto-detect from goal"}\n`;
-      prompt += `**ALLOWED TOOLS**: ${s.toolCategories.map(tc => {
-        const cat = TOOL_CATEGORIES.find(c => c.id === tc);
-        return cat ? cat.tools.join(", ") : tc;
-      }).join(", ")}\n`;
+      // Permitted actions (write/send/create/delete)
+      const permittedActions = (s.actionPermissions || []).map(apId => {
+        const perm = ACTION_PERMISSIONS.find(p => p.id === apId);
+        return perm ? `${perm.label} (${perm.actions.join(", ")})` : apId;
+      });
+      if (permittedActions.length > 0) {
+        prompt += `**PERMITTED ACTIONS (write/send/create/delete)**:\n${permittedActions.map(a => "- ✅ " + a).join("\n")}\n`;
+      } else {
+        prompt += `**PERMITTED ACTIONS**: READ-ONLY (no write/send/create/delete actions allowed)\n`;
+      }
+      prompt += `**INFORMATION GATHERING**: All search/read tools are available — use web_search, weather_forecast, gmail_search, calendar_list_events, google_drive_search, etc. freely to gather information needed for the goal.\n`;
       if (s.constraints.length > 0) {
-        prompt += `**CONSTRAINTS (MUST follow)**:\n${s.constraints.map(c => "- " + c).join("\n")}\n`;
+        prompt += `**CONSTRAINTS (MUST follow)**:\n${s.constraints.map(c => "- 🚫 " + c).join("\n")}\n`;
       }
       if (s.approvalGates.length > 0) {
         const gateLabels = s.approvalGates.map(gId => {
