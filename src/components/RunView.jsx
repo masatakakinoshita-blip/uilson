@@ -1,44 +1,53 @@
-import { TASKS, WORKFLOWS } from "../data/demoData";
-
 const V = {
-  bg: "#F0F2F7",
-  sb: "#FFFFFF",
-  main: "#F5F6FA",
-  card: "#FFFFFF",
-  border: "#DDE1EB",
-  border2: "#C8CDD8",
-  t1: "#333333",
-  t2: "#555555",
-  t3: "#888888",
-  t4: "#AAAAAA",
-  white: "#FFFFFF",
-  accent: "#3C5996",
-  teal: "#2B4070",
-  navy: "#1E2D50",
-  blue: "#3C5996",
-  red: "#C83732",
-  green: "#2E7D32",
-  orange: "#D4880F",
-  lime: "#ABCD00",
+  bg: "#F4F1EE", sb: "#FFFFFF", main: "#FAF8F6", card: "#FFFFFF",
+  border: "#E6E0DA", t1: "#3D3530", t2: "#5C534D", t3: "#8E857E",
+  t4: "#B5ADA6", white: "#FFFFFF", accent: "#5B7DB8", teal: "#3D6098",
+  green: "#5A9E6F", red: "#C87066", orange: "#C49A3C", lime: "#A8C868",
 };
 
-export default function RunView() {
+function timeAgo(dateStr) {
+  if (!dateStr) return "—";
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "たった今";
+  if (mins < 60) return mins + "分前";
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return hours + "時間前";
+  const days = Math.floor(hours / 24);
+  if (days < 7) return days + "日前";
+  return new Date(dateStr).toLocaleDateString("ja-JP");
+}
+
+function formatDuration(ms) {
+  if (!ms) return "—";
+  if (ms < 1000) return ms + "ms";
+  const secs = Math.round(ms / 1000);
+  if (secs < 60) return secs + "秒";
+  const mins = Math.round(secs / 60);
+  return mins + "分";
+}
+
+export default function RunView({ skills, executionLogs, getOverallStats, onExecuteSkill }) {
+  const stats = getOverallStats ? getOverallStats() : { todayCount: 0, successRate: 0, avgDuration: 0, recentLogs: [], totalExecutions: 0 };
+  const activeSkills = (skills || []).filter((s) => s.status === "active");
+  const recentLogs = stats.recentLogs || [];
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ padding: "12px 24px", borderBottom: `1px solid ${V.border}`, background: V.sb }}>
-        <div style={{ fontSize: 20, fontWeight: 700, color: V.t1 }}>⚡ 動かす</div>
-        <div style={{ fontSize: 14, color: V.t3, marginTop: 2 }}>AIが自動で実行中のタスクとワークフロー</div>
+        <div style={{ fontSize: 20, fontWeight: 700, color: V.t1 }}>⚡ おまかせ</div>
+        <div style={{ fontSize: 14, color: V.t3, marginTop: 2 }}>スキルをワンタップで実行、実行履歴をリアルタイム追跡</div>
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
-        {/* KPI Cards */}
-        <div className="g3" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 24 }}>
+        {/* KPI Cards - Real Data */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 24 }}>
           {[
-            { label: "今日の実行", value: "12件", color: V.accent },
-            { label: "成功率", value: "98.5%", color: V.green },
-            { label: "平均処理時間", value: "2.3分", color: V.orange },
+            { label: "今日の実行", value: stats.todayCount + "件", color: V.accent },
+            { label: "成功率", value: stats.totalExecutions > 0 ? stats.successRate + "%" : "—", color: V.green },
+            { label: "平均処理時間", value: stats.avgDuration > 0 ? formatDuration(stats.avgDuration) : "—", color: V.orange },
           ].map((kpi) => (
-            <div key={kpi.label} style={{ background: V.card, borderRadius: 10, border: `1px solid ${V.border}`, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+            <div key={kpi.label} style={{ background: V.card, borderRadius: 10, border: `1px solid ${V.border}`, overflow: "hidden" }}>
               <div style={{ padding: 16, textAlign: "center" }}>
                 <div style={{ fontSize: 14, color: V.t3 }}>{kpi.label}</div>
                 <div style={{ fontSize: 36, fontWeight: 800, color: kpi.color, margin: "4px 0" }}>{kpi.value}</div>
@@ -47,68 +56,72 @@ export default function RunView() {
           ))}
         </div>
 
-        {/* Tasks List */}
-        <div style={{ background: V.card, borderRadius: 10, border: `1px solid ${V.border}`, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)", marginBottom: 16 }}>
-          <div style={{ padding: "14px 16px", borderBottom: `1px solid ${V.border}`, display: "flex", alignItems: "center", gap: 8, fontSize: 16, fontWeight: 600 }}>実行中のタスク</div>
-          {TASKS.map((t, i) => {
-            const lc = { done: V.green, running: V.accent, wait: V.orange, sched: V.t4 }[t.status];
-            const lb = { done: "完了", running: "実行中", wait: "承認待ち", sched: "予定" }[t.status];
-            return (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: i < TASKS.length - 1 ? `1px solid ${V.border}` : "none" }}>
-                <div
+        {/* Quick Execute - Active Skills */}
+        {activeSkills.length > 0 && (
+          <div style={{ background: V.card, borderRadius: 10, border: `1px solid ${V.border}`, overflow: "hidden", marginBottom: 16 }}>
+            <div style={{ padding: "14px 16px", borderBottom: `1px solid ${V.border}`, fontSize: 16, fontWeight: 600, color: V.t1 }}>クイック実行</div>
+            <div style={{ padding: 16, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
+              {activeSkills.map((skill) => (
+                <button
+                  key={skill.id}
+                  onClick={() => onExecuteSkill && onExecuteSkill(skill)}
                   style={{
-                    width: 10,
-                    height: 10,
-                    borderRadius: "50%",
-                    background: lc,
-                    flexShrink: 0,
-                    boxShadow: t.status === "running" ? `0 0 6px rgba(60,89,150,0.3)` : "none",
-                    animation: t.status === "running" ? "pulse 1.5s infinite" : "none",
+                    padding: "14px 16px", borderRadius: 8, cursor: "pointer", textAlign: "left",
+                    backgroundColor: V.accent + "08", border: `1.5px solid ${V.accent}30`,
+                    transition: "all 0.15s",
                   }}
-                />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 15, fontWeight: 500 }}>{t.name}</div>
-                  <div style={{ fontSize: 13, color: V.t3, marginTop: 2 }}>{t.from}</div>
-                </div>
-                <span style={{ fontSize: 13, color: lc, fontWeight: 600 }}>{lb}</span>
-                <span style={{ fontSize: 13, color: V.t3, width: 80, textAlign: "right" }}>{t.time}</span>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Workflows */}
-        <div style={{ background: V.card, borderRadius: 10, border: `1px solid ${V.border}`, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-          <div style={{ padding: "14px 16px", borderBottom: `1px solid ${V.border}`, display: "flex", alignItems: "center", gap: 8, fontSize: 16, fontWeight: 600 }}>定期ワークフロー</div>
-          <div style={{ padding: 16 }}>
-            <div className="g2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              {WORKFLOWS.map((w, i) => (
-                <div key={i} style={{ padding: "12px 0", borderBottom: i % 2 === 1 || i === WORKFLOWS.length - 1 ? "none" : `1px solid ${V.border}`, borderRight: i % 2 === 0 && i !== WORKFLOWS.length - 1 ? `1px solid ${V.border}` : "none", paddingRight: i % 2 === 0 ? 16 : 0, paddingLeft: i % 2 === 1 ? 16 : 0 }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: 12, justifyContent: "space-between" }}>
-                    <div style={{ flex: 1 }}>
-                      <strong style={{ fontSize: 14, color: V.t1 }}>{w.n}</strong>
-                      <div style={{ fontSize: 12, color: V.t3, marginTop: 2 }}>
-                        <div>最終実行: {w.lastRun}</div>
-                        <div>次回実行: {w.nextRun}</div>
-                      </div>
-                    </div>
-                    <div style={{ width: 40, height: 22, borderRadius: 11, background: V.green, position: "relative", cursor: "pointer", flexShrink: 0 }}>
-                      <div style={{ width: 18, height: 18, borderRadius: "50%", background: "white", position: "absolute", top: 2, right: 2, boxShadow: "0 1px 2px rgba(0,0,0,0.2)" }} />
-                    </div>
+                  onMouseOver={e => { e.currentTarget.style.borderColor = V.accent; e.currentTarget.style.backgroundColor = V.accent + "15"; }}
+                  onMouseOut={e => { e.currentTarget.style.borderColor = V.accent + "30"; e.currentTarget.style.backgroundColor = V.accent + "08"; }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontSize: 16 }}>▶</span>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: V.accent }}>{skill.name}</span>
                   </div>
-                </div>
+                  <div style={{ fontSize: 11, color: V.t3 }}>
+                    実行 {skill.usageCount || 0}回 · {skill.lastUsed ? timeAgo(skill.lastUsed) : "未実行"}
+                  </div>
+                </button>
               ))}
             </div>
           </div>
+        )}
+
+        {/* Execution History - Real Data */}
+        <div style={{ background: V.card, borderRadius: 10, border: `1px solid ${V.border}`, overflow: "hidden" }}>
+          <div style={{ padding: "14px 16px", borderBottom: `1px solid ${V.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 16, fontWeight: 600, color: V.t1 }}>実行履歴</span>
+            <span style={{ fontSize: 12, color: V.t3 }}>累計 {stats.totalExecutions}件</span>
+          </div>
+          {recentLogs.length === 0 ? (
+            <div style={{ padding: "40px 16px", textAlign: "center", color: V.t3 }}>
+              <div style={{ fontSize: 36, marginBottom: 12 }}>📋</div>
+              <div style={{ fontSize: 14, fontWeight: 500 }}>まだ実行履歴がありません</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>スキルを実行すると、ここに履歴が表示されます</div>
+            </div>
+          ) : (
+            recentLogs.map((log, i) => {
+              const sc = { completed: V.green, failed: V.red, partial: V.orange }[log.status] || V.t4;
+              const sl = { completed: "完了", failed: "失敗", partial: "一部完了" }[log.status] || log.status;
+              return (
+                <div key={log.id || i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: i < recentLogs.length - 1 ? `1px solid ${V.border}` : "none" }}>
+                  <div style={{ width: 10, height: 10, borderRadius: "50%", backgroundColor: sc, flexShrink: 0 }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 500, color: V.t1 }}>{log.skillName}</div>
+                    <div style={{ fontSize: 12, color: V.t3, marginTop: 2 }}>
+                      {log.summary ? log.summary.substring(0, 60) + (log.summary.length > 60 ? "..." : "") : "—"}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <span style={{ fontSize: 12, color: sc, fontWeight: 600 }}>{sl}</span>
+                    <div style={{ fontSize: 11, color: V.t4, marginTop: 2 }}>{timeAgo(log.timestamp)}</div>
+                  </div>
+                  <span style={{ fontSize: 12, color: V.t3, width: 60, textAlign: "right" }}>{formatDuration(log.duration)}</span>
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
-
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.6; }
-        }
-      `}</style>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 
 const STORAGE_KEY = "uilson_skills";
+const LOG_STORAGE_KEY = "uilson_skill_logs";
 
 // Action permissions: services where the AI can WRITE/SEND/CREATE/DELETE
 // Reading/searching is ALWAYS allowed on all connected services
@@ -87,6 +88,7 @@ function generateId() {
 
 export default function useSkills() {
   const [skills, setSkills] = useState([]);
+  const [executionLogs, setExecutionLogs] = useState([]);
 
   useEffect(() => {
     try {
@@ -94,6 +96,12 @@ export default function useSkills() {
       if (stored) setSkills(JSON.parse(stored));
     } catch (e) {
       console.warn("Failed to load skills:", e);
+    }
+    try {
+      const logs = localStorage.getItem(LOG_STORAGE_KEY);
+      if (logs) setExecutionLogs(JSON.parse(logs));
+    } catch (e) {
+      console.warn("Failed to load execution logs:", e);
     }
   }, []);
 
@@ -103,6 +111,15 @@ export default function useSkills() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
     } catch (e) {
       console.warn("Failed to save skills:", e);
+    }
+  }, []);
+
+  const persistLogs = useCallback((updated) => {
+    setExecutionLogs(updated);
+    try {
+      localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(updated));
+    } catch (e) {
+      console.warn("Failed to save execution logs:", e);
     }
   }, []);
 
@@ -155,6 +172,102 @@ export default function useSkills() {
     updateSkill(id, { status: skill.status === "active" ? "paused" : "active" });
   }, [skills, updateSkill]);
 
+  // Record a skill execution
+  const recordExecution = useCallback((skillId, result) => {
+    const skill = skills.find((s) => s.id === skillId);
+    if (!skill) return;
+
+    // Update usage count and lastUsed
+    const updatedSkills = skills.map((s) =>
+      s.id === skillId
+        ? { ...s, usageCount: (s.usageCount || 0) + 1, lastUsed: new Date().toISOString() }
+        : s
+    );
+    persist(updatedSkills);
+
+    // Add execution log
+    const log = {
+      id: generateId(),
+      skillId,
+      skillName: skill.name,
+      timestamp: new Date().toISOString(),
+      status: result.status || "completed", // "completed", "failed", "partial"
+      duration: result.duration || null, // ms
+      summary: result.summary || "",
+      toolsUsed: result.toolsUsed || [],
+      error: result.error || null,
+    };
+    const updatedLogs = [log, ...executionLogs].slice(0, 200); // Keep last 200 logs
+    persistLogs(updatedLogs);
+
+    return log;
+  }, [skills, executionLogs, persist, persistLogs]);
+
+  // Get execution stats for a skill
+  const getSkillStats = useCallback((skillId) => {
+    const logs = executionLogs.filter((l) => l.skillId === skillId);
+    if (logs.length === 0) return { total: 0, success: 0, failed: 0, avgDuration: 0, successRate: 0 };
+
+    const success = logs.filter((l) => l.status === "completed").length;
+    const failed = logs.filter((l) => l.status === "failed").length;
+    const durations = logs.filter((l) => l.duration).map((l) => l.duration);
+    const avgDuration = durations.length > 0 ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 0;
+
+    return {
+      total: logs.length,
+      success,
+      failed,
+      partial: logs.filter((l) => l.status === "partial").length,
+      avgDuration,
+      successRate: Math.round((success / logs.length) * 100),
+      lastExecution: logs[0] || null,
+    };
+  }, [executionLogs]);
+
+  // Get overall stats across all skills
+  const getOverallStats = useCallback(() => {
+    const totalExecutions = executionLogs.length;
+    const successful = executionLogs.filter((l) => l.status === "completed").length;
+    const failed = executionLogs.filter((l) => l.status === "failed").length;
+    const durations = executionLogs.filter((l) => l.duration).map((l) => l.duration);
+    const avgDuration = durations.length > 0 ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 0;
+
+    // Today's executions
+    const today = new Date().toDateString();
+    const todayLogs = executionLogs.filter((l) => new Date(l.timestamp).toDateString() === today);
+
+    // This week's executions
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const weekLogs = executionLogs.filter((l) => new Date(l.timestamp) >= weekAgo);
+
+    // Top skills by usage
+    const skillUsage = {};
+    executionLogs.forEach((l) => {
+      if (!skillUsage[l.skillId]) {
+        skillUsage[l.skillId] = { name: l.skillName, count: 0, success: 0 };
+      }
+      skillUsage[l.skillId].count++;
+      if (l.status === "completed") skillUsage[l.skillId].success++;
+    });
+    const topSkills = Object.entries(skillUsage)
+      .map(([id, data]) => ({ id, ...data, successRate: Math.round((data.success / data.count) * 100) }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+
+    return {
+      totalExecutions,
+      successful,
+      failed,
+      successRate: totalExecutions > 0 ? Math.round((successful / totalExecutions) * 100) : 0,
+      avgDuration,
+      todayCount: todayLogs.length,
+      weekCount: weekLogs.length,
+      topSkills,
+      recentLogs: executionLogs.slice(0, 20),
+    };
+  }, [executionLogs]);
+
   // Generate the orchestration prompt for active skills
   const getActiveSkillsPrompt = useCallback(() => {
     const active = skills.filter((s) => s.status === "active" && s.orchestration);
@@ -202,10 +315,12 @@ export default function useSkills() {
 
   return {
     skills,
+    executionLogs,
     activeSkills: skills.filter((s) => s.status === "active"),
     learningSkills: skills.filter((s) => s.status === "learning"),
     pausedSkills: skills.filter((s) => s.status === "paused"),
     createSkill, updateSkill, deleteSkill,
     finalizeSkill, toggleSkill, getActiveSkillsPrompt,
+    recordExecution, getSkillStats, getOverallStats,
   };
 }

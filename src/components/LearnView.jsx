@@ -8,7 +8,7 @@ const V = {
   green: "#5A9E6F", red: "#C87066", orange: "#C49A3C", lime: "#A8C868",
 };
 
-export default function LearnView({ skills, onCreateSkill, onUpdateSkill, onDeleteSkill, onFinalizeSkill, onToggleSkill }) {
+export default function LearnView({ skills, onCreateSkill, onUpdateSkill, onDeleteSkill, onFinalizeSkill, onToggleSkill, onExecuteSkill }) {
   const [tab, setTab] = useState("teach");
   const [showWizard, setShowWizard] = useState(false);
   const [editingSkill, setEditingSkill] = useState(null);
@@ -31,7 +31,7 @@ export default function LearnView({ skills, onCreateSkill, onUpdateSkill, onDele
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
         {tab === "teach" && <TeachTab skills={skills} learningSkills={learningSkills} showWizard={showWizard} setShowWizard={setShowWizard} editingSkill={editingSkill} setEditingSkill={setEditingSkill} onCreateSkill={onCreateSkill} onUpdateSkill={onUpdateSkill} onFinalizeSkill={onFinalizeSkill} onDeleteSkill={onDeleteSkill} />}
-        {tab === "myskills" && <SkillsTab skills={skills || []} onToggleSkill={onToggleSkill} onDeleteSkill={onDeleteSkill} setEditingSkill={(s) => { setEditingSkill(s); setTab("teach"); setShowWizard(true); }} />}
+        {tab === "myskills" && <SkillsTab skills={skills || []} onToggleSkill={onToggleSkill} onDeleteSkill={onDeleteSkill} onExecuteSkill={onExecuteSkill} setEditingSkill={(s) => { setEditingSkill(s); setTab("teach"); setShowWizard(true); }} />}
       </div>
     </div>
   );
@@ -468,7 +468,7 @@ function SkillWizard({ skill: initialSkill, onClose, onCreateSkill, onUpdateSkil
   );
 }
 
-function SkillsTab({ skills, onToggleSkill, onDeleteSkill, setEditingSkill }) {
+function SkillsTab({ skills, onToggleSkill, onDeleteSkill, onExecuteSkill, setEditingSkill }) {
   const activeSkills = skills.filter((s) => s.status === "active");
   const pausedSkills = skills.filter((s) => s.status === "paused");
   const learningSkills = skills.filter((s) => s.status === "learning");
@@ -485,14 +485,14 @@ function SkillsTab({ skills, onToggleSkill, onDeleteSkill, setEditingSkill }) {
 
   return (
     <div>
-      {activeSkills.length > 0 && <SkillSection title="アクティブ" badge={V.green} skills={activeSkills} onToggleSkill={onToggleSkill} onDeleteSkill={onDeleteSkill} setEditingSkill={setEditingSkill} />}
+      {activeSkills.length > 0 && <SkillSection title="アクティブ" badge={V.green} skills={activeSkills} onToggleSkill={onToggleSkill} onDeleteSkill={onDeleteSkill} onExecuteSkill={onExecuteSkill} setEditingSkill={setEditingSkill} />}
       {pausedSkills.length > 0 && <SkillSection title="一時停止中" badge={V.t4} skills={pausedSkills} onToggleSkill={onToggleSkill} onDeleteSkill={onDeleteSkill} setEditingSkill={setEditingSkill} />}
       {learningSkills.length > 0 && <SkillSection title="作成中" badge={V.orange} skills={learningSkills} onToggleSkill={onToggleSkill} onDeleteSkill={onDeleteSkill} setEditingSkill={setEditingSkill} />}
     </div>
   );
 }
 
-function SkillSection({ title, badge, skills, onToggleSkill, onDeleteSkill, setEditingSkill }) {
+function SkillSection({ title, badge, skills, onToggleSkill, onDeleteSkill, onExecuteSkill, setEditingSkill }) {
   return (
     <div style={{ marginBottom: 24 }}>
       <h2 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 700, color: V.t1, display: "flex", alignItems: "center", gap: 8 }}>
@@ -500,15 +500,16 @@ function SkillSection({ title, badge, skills, onToggleSkill, onDeleteSkill, setE
         {title}（{skills.length}件）
       </h2>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
-        {skills.map((skill) => <SkillCard key={skill.id} skill={skill} onToggle={() => onToggleSkill(skill.id)} onDelete={() => onDeleteSkill(skill.id)} onEdit={() => setEditingSkill(skill)} />)}
+        {skills.map((skill) => <SkillCard key={skill.id} skill={skill} onToggle={() => onToggleSkill(skill.id)} onDelete={() => onDeleteSkill(skill.id)} onExecute={onExecuteSkill ? () => onExecuteSkill(skill) : null} onEdit={() => setEditingSkill(skill)} />)}
       </div>
     </div>
   );
 }
 
-function SkillCard({ skill, onToggle, onDelete, onEdit }) {
+function SkillCard({ skill, onToggle, onDelete, onEdit, onExecute }) {
   const isActive = skill.status === "active";
   const created = skill.createdAt ? new Date(skill.createdAt).toLocaleDateString("ja-JP") : "—";
+  const lastUsed = skill.lastUsed ? timeAgo(skill.lastUsed) : "未実行";
   const permCount = (skill.actionPermissions || []).length;
 
   return (
@@ -532,12 +533,27 @@ function SkillCard({ skill, onToggle, onDelete, onEdit }) {
         {(skill.constraints || []).length > 0 && <span style={{ padding: "1px 6px", borderRadius: 8, fontSize: 10, backgroundColor: V.red + "15", color: V.red }}>🚫 制約×{skill.constraints.length}</span>}
       </div>
       <div style={{ fontSize: 11, color: V.t4, display: "flex", justifyContent: "space-between", borderTop: `1px solid ${V.border}`, paddingTop: 10, marginBottom: 10 }}>
-        <span>作成: {created}</span><span>実行: {skill.usageCount || 0}回</span>
+        <span>実行: {skill.usageCount || 0}回</span><span>最終: {lastUsed}</span>
       </div>
       <div style={{ display: "flex", gap: 6 }}>
+        {isActive && onExecute && (
+          <button onClick={onExecute} style={{ flex: 2, padding: "8px 0", backgroundColor: V.accent, color: V.white, border: "none", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>▶ 実行</button>
+        )}
         <button onClick={onEdit} style={{ flex: 1, padding: "6px 0", backgroundColor: "transparent", border: `1px solid ${V.border}`, borderRadius: 6, cursor: "pointer", fontSize: 11, color: V.t3 }}>編集</button>
         <button onClick={onDelete} style={{ padding: "6px 12px", backgroundColor: "transparent", border: `1px solid ${V.red}30`, borderRadius: 6, cursor: "pointer", fontSize: 11, color: V.red }}>削除</button>
       </div>
     </div>
   );
+}
+
+function timeAgo(dateStr) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "たった今";
+  if (mins < 60) return mins + "分前";
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return hours + "時間前";
+  const days = Math.floor(hours / 24);
+  if (days < 7) return days + "日前";
+  return new Date(dateStr).toLocaleDateString("ja-JP");
 }

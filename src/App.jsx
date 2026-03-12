@@ -123,6 +123,16 @@ export default function App() {
         "\n- Always provide the link to the created document" +
         skillsHook.getActiveSkillsPrompt();
 
+      // Detect if this message triggers an active skill
+      const matchedSkill = skillsHook.activeSkills.find((s) => {
+        const triggers = s.triggers || [];
+        const lowerText = text.toLowerCase();
+        return triggers.some((t) => lowerText.includes(t.toLowerCase())) ||
+          lowerText.includes(s.name.toLowerCase()) ||
+          lowerText.includes("を実行して");
+      });
+      const execStart = Date.now();
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -139,6 +149,19 @@ export default function App() {
       const respData = await res.json();
       const reply = data.extractReply(respData);
       setMessages((p) => [...p, { role: "assistant", content: reply }]);
+
+      // Record skill execution if a skill was triggered
+      if (matchedSkill) {
+        const duration = Date.now() - execStart;
+        const toolsUsed = respData.toolsUsed || [];
+        const hasError = typeof reply === "string" && (reply.includes("Error") || reply.includes("エラー"));
+        skillsHook.recordExecution(matchedSkill.id, {
+          status: hasError ? "failed" : "completed",
+          duration,
+          summary: typeof reply === "string" ? reply.substring(0, 200) : "実行完了",
+          toolsUsed,
+        });
+      }
     } catch (err) {
       setMessages((p) => [
         ...p,
@@ -167,12 +190,18 @@ export default function App() {
             onDeleteSkill={skillsHook.deleteSkill}
             onFinalizeSkill={skillsHook.finalizeSkill}
             onToggleSkill={skillsHook.toggleSkill}
+            onExecuteSkill={(skill) => {
+              // Switch to chat and auto-send the skill's goal as a message
+              setView("chat");
+              const triggerMsg = skill.name + "を実行して";
+              setTimeout(() => send(triggerMsg), 300);
+            }}
           />
         );
       case "run":
-        return <RunView />;
+        return <RunView skills={skillsHook.skills} executionLogs={skillsHook.executionLogs} getSkillStats={skillsHook.getSkillStats} getOverallStats={skillsHook.getOverallStats} onExecuteSkill={(skill) => { setView("chat"); setTimeout(() => send(skill.name + "を実行して"), 300); }} />;
       case "review":
-        return <ReviewView />;
+        return <ReviewView skills={skillsHook.skills} executionLogs={skillsHook.executionLogs} getSkillStats={skillsHook.getSkillStats} getOverallStats={skillsHook.getOverallStats} />;
       default:
         return (
           <ChatView

@@ -27,7 +27,7 @@ const navItems = [
     label: "おぼえる",
     badge: { text: "学習中", pulse: true, bg: "rgba(91,125,184,0.08)", color: "#5B7DB8" }
   },
-  { id: "run", icon: "⚡", label: "おまかせ", badge: { text: "3", bg: "rgba(90,158,111,0.08)", color: "#5A9E6F" } },
+  { id: "run", icon: "⚡", label: "おまかせ" },
   { id: "review", icon: "📊", label: "ふりかえり" }
 ];
 
@@ -48,8 +48,13 @@ export default function Sidebar({
     ? { text: "学習中", pulse: true, bg: "rgba(91,125,184,0.08)", color: "#5B7DB8" }
     : null;
 
+  const runBadge = skillCounts?.active > 0
+    ? { text: `${skillCounts.active}`, bg: "rgba(90,158,111,0.08)", color: "#5A9E6F" }
+    : null;
+
   const dynamicNavItems = navItems.map((item) =>
-    item.id === "learn" ? { ...item, badge: learnBadge } : item
+    item.id === "learn" ? { ...item, badge: learnBadge } :
+    item.id === "run" ? { ...item, badge: runBadge } : item
   );
   const isActive = (itemId) => view === itemId;
 
