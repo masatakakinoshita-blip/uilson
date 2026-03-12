@@ -79,6 +79,7 @@ export default function RunView({ skills, executionLogs, getOverallStats, onExec
                   </div>
                   <div style={{ fontSize: 11, color: V.t3 }}>
                     実行 {skill.usageCount || 0}回 · {skill.lastUsed ? timeAgo(skill.lastUsed) : "未実行"}
+                    {skill.schedule && <span style={{ marginLeft: 6, color: V.teal }}>🕐 自動</span>}
                   </div>
                 </button>
               ))}
@@ -108,6 +109,8 @@ export default function RunView({ skills, executionLogs, getOverallStats, onExec
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 14, fontWeight: 500, color: V.t1 }}>{log.skillName}</div>
                     <div style={{ fontSize: 12, color: V.t3, marginTop: 2 }}>
+                      {log.scheduled && <span style={{ fontSize: 10, color: V.teal, marginRight: 4 }}>🕐</span>}
+                      {log.feedback && <span style={{ fontSize: 10, marginRight: 4 }}>{log.feedback === "good" ? "👍" : "👎"}</span>}
                       {log.summary ? log.summary.substring(0, 60) + (log.summary.length > 60 ? "..." : "") : "—"}
                     </div>
                   </div>

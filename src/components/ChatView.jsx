@@ -101,7 +101,10 @@ export default function ChatView({
   spSites,
   teamsChats,
   teamsChannels,
-  driveFiles
+  driveFiles,
+  lastExecLogId,
+  feedbackGiven,
+  onFeedback
 }) {
   const bottomRef = useRef(null);
 
@@ -441,20 +444,37 @@ export default function ChatView({
                   </div>
                 )}
 
-                <div
-                  style={{
-                    maxWidth: msg.role === "assistant" ? "75%" : "60%",
-                    padding: msg.role === "assistant" ? "16px 20px" : "12px 16px",
-                    borderRadius: "12px",
-                    backgroundColor: msg.role === "user" ? V.accent : V.card,
-                    color: msg.role === "user" ? V.white : V.t1,
-                    fontSize: "14px",
-                    lineHeight: "1.6",
-                    wordBreak: "break-word",
-                    boxShadow: msg.role === "assistant" ? "0 1px 3px rgba(0,0,0,0.06)" : "none"
-                  }}
-                >
-                  {msg.role === "assistant" ? renderMarkdown(msg.content) : msg.content}
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  <div
+                    style={{
+                      maxWidth: msg.role === "assistant" ? "75%" : "60%",
+                      padding: msg.role === "assistant" ? "16px 20px" : "12px 16px",
+                      borderRadius: "12px",
+                      backgroundColor: msg.role === "user" ? V.accent : V.card,
+                      color: msg.role === "user" ? V.white : V.t1,
+                      fontSize: "14px",
+                      lineHeight: "1.6",
+                      wordBreak: "break-word",
+                      boxShadow: msg.role === "assistant" ? "0 1px 3px rgba(0,0,0,0.06)" : "none"
+                    }}
+                  >
+                    {msg.role === "assistant" ? renderMarkdown(msg.content) : msg.content}
+                  </div>
+                  {/* Feedback buttons — show on last assistant message if skill was executed */}
+                  {msg.role === "assistant" && lastExecLogId && idx === messages.length - 1 && onFeedback && (
+                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                      {feedbackGiven?.[lastExecLogId] ? (
+                        <span style={{ fontSize: 12, color: V.t3, padding: "4px 10px", backgroundColor: V.main, borderRadius: 12 }}>
+                          {feedbackGiven[lastExecLogId] === "good" ? "👍 フィードバック済み" : "👎 フィードバック済み"}
+                        </span>
+                      ) : (
+                        <>
+                          <button onClick={() => onFeedback(lastExecLogId, "good")} style={{ padding: "4px 12px", fontSize: 12, border: `1px solid ${V.green}40`, borderRadius: 12, background: V.green + "08", color: V.green, cursor: "pointer", fontWeight: 500 }}>👍 良い</button>
+                          <button onClick={() => onFeedback(lastExecLogId, "bad")} style={{ padding: "4px 12px", fontSize: 12, border: `1px solid ${V.red}40`, borderRadius: 12, background: V.red + "08", color: V.red, cursor: "pointer", fontWeight: 500 }}>👎 改善が必要</button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

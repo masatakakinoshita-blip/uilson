@@ -82,6 +82,18 @@ export const APPROVAL_GATE_OPTIONS = [
   { id: "final_output", label: "最終結果の提示時", description: "最終結果をユーザーに見せて確認" },
 ];
 
+// Schedule presets
+export const SCHEDULE_OPTIONS = [
+  { id: "none", label: "スケジュールなし", desc: "手動実行のみ", value: null },
+  { id: "daily_8", label: "毎朝 8:00", desc: "毎日午前8時に自動実行", value: "daily:8" },
+  { id: "daily_9", label: "毎朝 9:00", desc: "毎日午前9時に自動実行", value: "daily:9" },
+  { id: "weekdays_8", label: "平日 8:00", desc: "月〜金の午前8時に自動実行", value: "weekdays:8" },
+  { id: "weekdays_9", label: "平日 9:00", desc: "月〜金の午前9時に自動実行", value: "weekdays:9" },
+  { id: "weekly_1_9", label: "毎週月曜 9:00", desc: "毎週月曜午前9時に自動実行", value: "weekly:1:9" },
+  { id: "weekly_5_17", label: "毎週金曜 17:00", desc: "毎週金曜午後5時に自動実行", value: "weekly:5:17" },
+  { id: "hourly", label: "毎時", desc: "1時間ごとに自動実行", value: "hourly" },
+];
+
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
@@ -230,11 +242,15 @@ export default function useSkills() {
       context: data.context || "",
       orchestration: data.orchestration || "",
       triggers: data.triggers || [],
+      schedule: data.schedule || null,
+      lastScheduledRun: null,
       status: "learning",
       usageCount: 0,
       createdAt: new Date().toISOString(),
       lastUsed: null,
       step: 1,
+      feedbackScore: 0,
+      feedbackCount: 0,
     };
     const updated = [...skills, skill];
     persist(updated);
@@ -366,6 +382,41 @@ export default function useSkills() {
     };
   }, [executionLogs]);
 
+  // Record user feedback on an execution (thumbs up / thumbs down)
+  const recordFeedback = useCallback((logId, feedback) => {
+    // feedback: "good" or "bad"
+    const updatedLogs = executionLogs.map((l) => {
+      if (l.id === logId) return { ...l, feedback };
+      return l;
+    });
+    persistLogs(updatedLogs);
+
+    // Update feedback log in Firestore
+    const log = updatedLogs.find((l) => l.id === logId);
+    if (log) {
+      saveLogToFirestore(log);
+
+      // Update skill's feedback score
+      const skill = skills.find((s) => s.id === log.skillId);
+      if (skill) {
+        const delta = feedback === "good" ? 1 : -1;
+        const updatedSkills = skills.map((s) => {
+          if (s.id === log.skillId) {
+            return {
+              ...s,
+              feedbackScore: (s.feedbackScore || 0) + delta,
+              feedbackCount: (s.feedbackCount || 0) + 1,
+            };
+          }
+          return s;
+        });
+        persist(updatedSkills);
+        const updatedSkill = updatedSkills.find((s) => s.id === log.skillId);
+        if (updatedSkill) saveSkillToFirestore(updatedSkill);
+      }
+    }
+  }, [executionLogs, skills, persistLogs, persist, saveLogToFirestore, saveSkillToFirestore]);
+
   // Generate the orchestration prompt for active skills
   const getActiveSkillsPrompt = useCallback(() => {
     const active = skills.filter((s) => s.status === "active" && s.orchestration);
@@ -419,6 +470,6 @@ export default function useSkills() {
     pausedSkills: skills.filter((s) => s.status === "paused"),
     createSkill, updateSkill, deleteSkill,
     finalizeSkill, toggleSkill, getActiveSkillsPrompt,
-    recordExecution, getSkillStats, getOverallStats,
+    recordExecution, recordFeedback, getSkillStats, getOverallStats,
   };
 }

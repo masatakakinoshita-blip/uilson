@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { ACTION_PERMISSIONS, APPROVAL_GATE_OPTIONS } from "../hooks/useSkills";
+import { ACTION_PERMISSIONS, APPROVAL_GATE_OPTIONS, SCHEDULE_OPTIONS } from "../hooks/useSkills";
 
 const V = {
   bg: "#F4F1EE", sb: "#FFFFFF", main: "#FAF8F6", card: "#FFFFFF",
@@ -165,6 +165,7 @@ function SkillWizard({ skill: initialSkill, onClose, onCreateSkill, onUpdateSkil
   const [currentConstraint, setCurrentConstraint] = useState("");
   const [approvalGates, setApprovalGates] = useState(initialSkill?.approvalGates || []);
   const [context, setContext] = useState(initialSkill?.context || "");
+  const [schedule, setSchedule] = useState(initialSkill?.schedule || null);
   const [orchestration, setOrchestration] = useState(initialSkill?.orchestration || "");
   const [triggers, setTriggers] = useState(initialSkill?.triggers?.join(", ") || "");
   const [generating, setGenerating] = useState(false);
@@ -205,7 +206,7 @@ function SkillWizard({ skill: initialSkill, onClose, onCreateSkill, onUpdateSkil
   };
 
   const handleStep3 = () => {
-    if (skillId) onUpdateSkill(skillId, { constraints, approvalGates, context, step: 4 });
+    if (skillId) onUpdateSkill(skillId, { constraints, approvalGates, context, schedule, step: 4 });
     handleGenerate();
   };
 
@@ -365,6 +366,33 @@ function SkillWizard({ skill: initialSkill, onClose, onCreateSkill, onUpdateSkil
                 );
               })}
             </div>
+          </div>
+
+          {/* Schedule */}
+          <div style={{ marginBottom: 24 }}>
+            <label style={{ display: "block", marginBottom: 8, fontSize: 14, fontWeight: 600, color: V.t1 }}>自動スケジュール（任意）</label>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 8 }}>
+              {SCHEDULE_OPTIONS.map(opt => {
+                const selected = schedule === opt.value;
+                return (
+                  <button key={opt.id} onClick={() => setSchedule(selected ? null : opt.value)} style={{
+                    padding: "10px 12px", borderRadius: 8, cursor: "pointer", textAlign: "left", transition: "all 0.15s",
+                    backgroundColor: selected ? V.teal + "12" : V.card,
+                    border: `1.5px solid ${selected ? V.teal : V.border}`,
+                  }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: selected ? V.teal : V.t2, marginBottom: 2 }}>
+                      {selected ? "🕐 " : "○ "}{opt.label}
+                    </div>
+                    <div style={{ fontSize: 11, color: V.t4 }}>{opt.desc}</div>
+                  </button>
+                );
+              })}
+            </div>
+            {schedule && (
+              <div style={{ marginTop: 8, padding: "8px 12px", backgroundColor: V.teal + "08", borderRadius: 6, fontSize: 12, color: V.teal }}>
+                🕐 このスキルは自動スケジュールで実行されます（Vercel Cron）
+              </div>
+            )}
           </div>
 
           {/* Context */}
@@ -531,6 +559,8 @@ function SkillCard({ skill, onToggle, onDelete, onEdit, onExecute }) {
         }
         {(skill.approvalGates || []).length > 0 && <span style={{ padding: "1px 6px", borderRadius: 8, fontSize: 10, backgroundColor: V.orange + "15", color: V.orange }}>⚠️ 承認×{skill.approvalGates.length}</span>}
         {(skill.constraints || []).length > 0 && <span style={{ padding: "1px 6px", borderRadius: 8, fontSize: 10, backgroundColor: V.red + "15", color: V.red }}>🚫 制約×{skill.constraints.length}</span>}
+        {skill.schedule && <span style={{ padding: "1px 6px", borderRadius: 8, fontSize: 10, backgroundColor: V.teal + "15", color: V.teal }}>🕐 自動実行</span>}
+        {(skill.feedbackCount || 0) > 0 && <span style={{ padding: "1px 6px", borderRadius: 8, fontSize: 10, backgroundColor: (skill.feedbackScore || 0) >= 0 ? V.green + "15" : V.red + "15", color: (skill.feedbackScore || 0) >= 0 ? V.green : V.red }}>{(skill.feedbackScore || 0) >= 0 ? "👍" : "👎"} {skill.feedbackCount}</span>}
       </div>
       <div style={{ fontSize: 11, color: V.t4, display: "flex", justifyContent: "space-between", borderTop: `1px solid ${V.border}`, paddingTop: 10, marginBottom: 10 }}>
         <span>実行: {skill.usageCount || 0}回</span><span>最終: {lastUsed}</span>

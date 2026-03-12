@@ -25,6 +25,8 @@ export default function App() {
   const [view, setView] = useState("chat");
   const [sbCollapsed, setSbCollapsed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [lastExecLogId, setLastExecLogId] = useState(null);
+  const [feedbackGiven, setFeedbackGiven] = useState({});
 
   // Auto-collapse sidebar on creation sub-pages (3rd level)
   const prevViewRef = useRef(view);
@@ -121,7 +123,25 @@ export default function App() {
         "\n- Use google_drive_create_doc to create a Google Doc" +
         "\n- For email drafts, use gmail_create_draft or outlook_create_draft" +
         "\n- Always provide the link to the created document" +
-        skillsHook.getActiveSkillsPrompt();
+        skillsHook.getActiveSkillsPrompt() +
+        (() => {
+          // Include feedback summary for skills with feedback
+          const fbSkills = skillsHook.skills.filter(s => s.feedbackCount > 0);
+          if (fbSkills.length === 0) return "";
+          let p = "\n\n## SKILL FEEDBACK HISTORY (use to improve execution quality):\n";
+          fbSkills.forEach(s => {
+            const ratio = s.feedbackScore >= 0 ? "positive" : "needs improvement";
+            p += `- ${s.name}: ${s.feedbackCount} feedback(s), net score ${s.feedbackScore} (${ratio})\n`;
+          });
+          // Recent negative feedback logs
+          const badLogs = skillsHook.executionLogs.filter(l => l.feedback === "bad").slice(0, 5);
+          if (badLogs.length > 0) {
+            p += "\nRecent negative feedback:\n";
+            badLogs.forEach(l => { p += `- ${l.skillName}: "${l.summary?.substring(0, 100)}"\n`; });
+            p += "\nPlease adjust execution approach for skills with negative feedback to improve quality.\n";
+          }
+          return p;
+        })();
 
       // Detect if this message triggers an active skill
       const matchedSkill = skillsHook.activeSkills.find((s) => {
@@ -155,12 +175,13 @@ export default function App() {
         const duration = Date.now() - execStart;
         const toolsUsed = respData.toolsUsed || [];
         const hasError = typeof reply === "string" && (reply.includes("Error") || reply.includes("エラー"));
-        skillsHook.recordExecution(matchedSkill.id, {
+        const execLog = skillsHook.recordExecution(matchedSkill.id, {
           status: hasError ? "failed" : "completed",
           duration,
           summary: typeof reply === "string" ? reply.substring(0, 200) : "実行完了",
           toolsUsed,
         });
+        if (execLog) setLastExecLogId(execLog.id);
       }
     } catch (err) {
       setMessages((p) => [
@@ -218,6 +239,12 @@ export default function App() {
             teamsChats={data.teamsChats}
             teamsChannels={data.teamsChannels}
             driveFiles={data.driveFiles}
+            lastExecLogId={lastExecLogId}
+            feedbackGiven={feedbackGiven}
+            onFeedback={(logId, fb) => {
+              skillsHook.recordFeedback(logId, fb);
+              setFeedbackGiven((prev) => ({ ...prev, [logId]: fb }));
+            }}
           />
         );
     }

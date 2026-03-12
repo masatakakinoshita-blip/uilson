@@ -32,7 +32,7 @@ export default function ReviewView({ skills, executionLogs, getSkillStats, getOv
             { l: "総実行回数", v: hasData ? stats.totalExecutions + "回" : "—", delta: "今週 " + stats.weekCount + "回", c: V.accent },
             { l: "成功率", v: hasData ? stats.successRate + "%" : "—", delta: hasData ? "成功 " + stats.successful + " / 失敗 " + stats.failed : "データなし", c: V.green },
             { l: "平均処理時間", v: hasData ? formatDuration(stats.avgDuration) : "—", delta: "今日 " + stats.todayCount + "回実行", c: V.orange },
-            { l: "アクティブスキル", v: activeSkills.length + "件", delta: (skills || []).length + "件中", c: V.teal },
+            { l: "アクティブスキル", v: activeSkills.length + "件", delta: (() => { const fb = (executionLogs || []).filter(l => l.feedback); const good = fb.filter(l => l.feedback === "good").length; return fb.length > 0 ? `👍${good} 👎${fb.length - good}` : (skills || []).length + "件中"; })(), c: V.teal },
           ].map((k) => (
             <div key={k.l} style={{ background: V.card, borderRadius: 10, border: `1px solid ${V.border}` }}>
               <div style={{ padding: 16, textAlign: "center" }}>
@@ -135,7 +135,11 @@ export default function ReviewView({ skills, executionLogs, getSkillStats, getOv
                   return (
                     <div key={log.id || i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", borderBottom: `1px solid ${V.border}`, fontSize: 13 }}>
                       <span style={{ color: sc, fontWeight: 700, fontSize: 14, width: 20 }}>{sl}</span>
-                      <span style={{ flex: 1, color: V.t2, fontWeight: 500 }}>{log.skillName}</span>
+                      <span style={{ flex: 1, color: V.t2, fontWeight: 500 }}>
+                        {log.skillName}
+                        {log.scheduled && <span style={{ marginLeft: 6, fontSize: 10, color: V.teal, backgroundColor: V.teal + "12", padding: "1px 5px", borderRadius: 6 }}>🕐 自動</span>}
+                        {log.feedback && <span style={{ marginLeft: 6, fontSize: 10, color: log.feedback === "good" ? V.green : V.red }}>{log.feedback === "good" ? "👍" : "👎"}</span>}
+                      </span>
                       <span style={{ color: V.t3, fontSize: 12 }}>{formatDuration(log.duration)}</span>
                       <span style={{ color: V.t4, fontSize: 11, width: 90, textAlign: "right" }}>{time}</span>
                     </div>
