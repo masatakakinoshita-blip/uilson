@@ -7,7 +7,7 @@ const SCOPES = "https://www.googleapis.com/auth/gmail.modify https://www.googlea
 const SLACK_CLIENT_ID = import.meta.env.VITE_SLACK_CLIENT_ID;
 const SLACK_USER_SCOPES = "channels:read,channels:history,groups:read,groups:history,chat:write,users:read,im:read,im:write,im:history";
 const MS_CLIENT_ID = import.meta.env.VITE_MS_CLIENT_ID;
-const MS_SCOPES = "Mail.Read Calendars.RadWrite User.Read Sites.Read.All Files.Read.All Chat.Read Team.ReadBasic.All Channel.ReadBasic.All";
+const MS_SCOPES = "Mail.Read Calendars.ReadWrite User.Read Sites.Read.All Files.Read.All Chat.Read Team.ReadBasic.All Channel.ReadBasic.All";
 
 // Detect if running inside a hidden iframe (silent refresh child)
 const IS_IFRAME = window.self !== window.top;
