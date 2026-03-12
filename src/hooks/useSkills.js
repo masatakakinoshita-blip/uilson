@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 const STORAGE_KEY = "uilson_skills";
 const LOG_STORAGE_KEY = "uilson_skill_logs";
@@ -86,32 +86,122 @@ function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+// ===== Firestore API helpers =====
+async function firestoreCall(action, body = {}) {
+  try {
+    const resp = await fetch("/api/skills", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, ...body }),
+    });
+    const data = await resp.json();
+    if (!data.ok && data.error) {
+      console.warn("Firestore API error:", data.error);
+      return null;
+    }
+    return data;
+  } catch (e) {
+    console.warn("Firestore API unreachable:", e.message);
+    return null;
+  }
+}
+
 export default function useSkills() {
   const [skills, setSkills] = useState([]);
   const [executionLogs, setExecutionLogs] = useState([]);
+  const [syncStatus, setSyncStatus] = useState("idle"); // idle, syncing, synced, error
+  const initialLoadDone = useRef(false);
 
+  // ===== LOAD: Firestore first, localStorage fallback =====
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) setSkills(JSON.parse(stored));
-    } catch (e) {
-      console.warn("Failed to load skills:", e);
+    async function loadData() {
+      setSyncStatus("syncing");
+
+      // 1. Load from localStorage first (instant)
+      let localSkills = [];
+      let localLogs = [];
+      try {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) localSkills = JSON.parse(stored);
+      } catch (e) {
+        console.warn("Failed to load skills from localStorage:", e);
+      }
+      try {
+        const logs = localStorage.getItem(LOG_STORAGE_KEY);
+        if (logs) localLogs = JSON.parse(logs);
+      } catch (e) {
+        console.warn("Failed to load logs from localStorage:", e);
+      }
+
+      // Set local data immediately for fast UI
+      if (localSkills.length > 0) setSkills(localSkills);
+      if (localLogs.length > 0) setExecutionLogs(localLogs);
+
+      // 2. Try to load from Firestore
+      const [skillsResult, logsResult] = await Promise.all([
+        firestoreCall("get_skills"),
+        firestoreCall("get_logs"),
+      ]);
+
+      if (skillsResult && logsResult) {
+        const fsSkills = skillsResult.skills || [];
+        const fsLogs = logsResult.logs || [];
+
+        if (fsSkills.length > 0 || fsLogs.length > 0) {
+          // Firestore has data — use it as source of truth
+          setSkills(fsSkills);
+          setExecutionLogs(fsLogs);
+          // Also update localStorage cache
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(fsSkills));
+            localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(fsLogs));
+          } catch (e) { /* ignore */ }
+          setSyncStatus("synced");
+        } else if (localSkills.length > 0 || localLogs.length > 0) {
+          // Firestore is empty but localStorage has data — migrate up
+          console.log("Migrating localStorage data to Firestore...");
+          const syncResult = await firestoreCall("sync", {
+            skills: localSkills,
+            logs: localLogs,
+          });
+          if (syncResult) {
+            console.log("Migration complete:", syncResult);
+          }
+          setSyncStatus("synced");
+        } else {
+          setSyncStatus("synced");
+        }
+      } else {
+        // Firestore unreachable — use localStorage data
+        setSyncStatus("error");
+        console.warn("Firestore unreachable, using localStorage only");
+      }
+
+      initialLoadDone.current = true;
     }
-    try {
-      const logs = localStorage.getItem(LOG_STORAGE_KEY);
-      if (logs) setExecutionLogs(JSON.parse(logs));
-    } catch (e) {
-      console.warn("Failed to load execution logs:", e);
-    }
+
+    loadData();
   }, []);
 
+  // ===== PERSIST: localStorage + async Firestore =====
   const persist = useCallback((updated) => {
     setSkills(updated);
+    // localStorage (sync, fast)
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
     } catch (e) {
-      console.warn("Failed to save skills:", e);
+      console.warn("Failed to save skills to localStorage:", e);
     }
+  }, []);
+
+  // Save a single skill to Firestore (fire-and-forget)
+  const saveSkillToFirestore = useCallback((skill) => {
+    firestoreCall("save_skill", { skill }).catch(() => {});
+  }, []);
+
+  // Delete a skill from Firestore (fire-and-forget)
+  const deleteSkillFromFirestore = useCallback((skillId) => {
+    firestoreCall("delete_skill", { skillId }).catch(() => {});
   }, []);
 
   const persistLogs = useCallback((updated) => {
@@ -119,10 +209,16 @@ export default function useSkills() {
     try {
       localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(updated));
     } catch (e) {
-      console.warn("Failed to save execution logs:", e);
+      console.warn("Failed to save execution logs to localStorage:", e);
     }
   }, []);
 
+  // Save a single log to Firestore (fire-and-forget)
+  const saveLogToFirestore = useCallback((log) => {
+    firestoreCall("save_log", { log }).catch(() => {});
+  }, []);
+
+  // ===== CRUD Operations =====
   const createSkill = useCallback((data) => {
     const skill = {
       id: generateId(),
@@ -132,10 +228,8 @@ export default function useSkills() {
       constraints: data.constraints || [],
       approvalGates: data.approvalGates || [],
       context: data.context || "",
-      // Generated by AI
       orchestration: data.orchestration || "",
       triggers: data.triggers || [],
-      // Meta
       status: "learning",
       usageCount: 0,
       createdAt: new Date().toISOString(),
@@ -144,18 +238,22 @@ export default function useSkills() {
     };
     const updated = [...skills, skill];
     persist(updated);
+    saveSkillToFirestore(skill);
     return skill;
-  }, [skills, persist]);
+  }, [skills, persist, saveSkillToFirestore]);
 
   const updateSkill = useCallback((id, changes) => {
     const updated = skills.map((s) => s.id === id ? { ...s, ...changes } : s);
     persist(updated);
-    return updated.find((s) => s.id === id);
-  }, [skills, persist]);
+    const updatedSkill = updated.find((s) => s.id === id);
+    if (updatedSkill) saveSkillToFirestore(updatedSkill);
+    return updatedSkill;
+  }, [skills, persist, saveSkillToFirestore]);
 
   const deleteSkill = useCallback((id) => {
     persist(skills.filter((s) => s.id !== id));
-  }, [skills, persist]);
+    deleteSkillFromFirestore(id);
+  }, [skills, persist, deleteSkillFromFirestore]);
 
   const finalizeSkill = useCallback((id, orchestration, triggers) => {
     updateSkill(id, {
@@ -184,6 +282,8 @@ export default function useSkills() {
         : s
     );
     persist(updatedSkills);
+    const updatedSkill = updatedSkills.find((s) => s.id === skillId);
+    if (updatedSkill) saveSkillToFirestore(updatedSkill);
 
     // Add execution log
     const log = {
@@ -191,17 +291,18 @@ export default function useSkills() {
       skillId,
       skillName: skill.name,
       timestamp: new Date().toISOString(),
-      status: result.status || "completed", // "completed", "failed", "partial"
-      duration: result.duration || null, // ms
+      status: result.status || "completed",
+      duration: result.duration || null,
       summary: result.summary || "",
       toolsUsed: result.toolsUsed || [],
       error: result.error || null,
     };
-    const updatedLogs = [log, ...executionLogs].slice(0, 200); // Keep last 200 logs
+    const updatedLogs = [log, ...executionLogs].slice(0, 200);
     persistLogs(updatedLogs);
+    saveLogToFirestore(log);
 
     return log;
-  }, [skills, executionLogs, persist, persistLogs]);
+  }, [skills, executionLogs, persist, persistLogs, saveSkillToFirestore, saveLogToFirestore]);
 
   // Get execution stats for a skill
   const getSkillStats = useCallback((skillId) => {
@@ -232,16 +333,13 @@ export default function useSkills() {
     const durations = executionLogs.filter((l) => l.duration).map((l) => l.duration);
     const avgDuration = durations.length > 0 ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 0;
 
-    // Today's executions
     const today = new Date().toDateString();
     const todayLogs = executionLogs.filter((l) => new Date(l.timestamp).toDateString() === today);
 
-    // This week's executions
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);
     const weekLogs = executionLogs.filter((l) => new Date(l.timestamp) >= weekAgo);
 
-    // Top skills by usage
     const skillUsage = {};
     executionLogs.forEach((l) => {
       if (!skillUsage[l.skillId]) {
@@ -283,7 +381,6 @@ export default function useSkills() {
       prompt += `### SKILL: ${s.name}\n`;
       prompt += `**GOAL**: ${s.goal}\n`;
       prompt += `**TRIGGERS**: ${s.triggers.join(", ") || "auto-detect from goal"}\n`;
-      // Permitted actions (write/send/create/delete)
       const permittedActions = (s.actionPermissions || []).map(apId => {
         const perm = ACTION_PERMISSIONS.find(p => p.id === apId);
         return perm ? `${perm.label} (${perm.actions.join(", ")})` : apId;
@@ -316,6 +413,7 @@ export default function useSkills() {
   return {
     skills,
     executionLogs,
+    syncStatus,
     activeSkills: skills.filter((s) => s.status === "active"),
     learningSkills: skills.filter((s) => s.status === "learning"),
     pausedSkills: skills.filter((s) => s.status === "paused"),
