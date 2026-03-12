@@ -1,7 +1,11 @@
-// Claude via Vertex AI
+// Claude API (Direct Anthropic API - temporary until Vertex AI quota is approved)
+// When Vertex AI quota is approved, switch back by setting USE_VERTEX=true env var
 import crypto from 'crypto';
 
 const CLAUDE_MODEL = 'claude-sonnet-4-6';
+const USE_VERTEX = process.env.USE_VERTEX === 'true';
+
+// Vertex AI config (for when quota is approved)
 const VERTEX_PROJECT = process.env.VERTEX_PROJECT_ID || 'uilson-489209';
 const VERTEX_REGION = process.env.VERTEX_REGION || 'us-east1';
 
@@ -12,6 +16,8 @@ let cachedToken = null;
 let tokenExpiry = 0;
 
 async function getAccessToken() {
+  if (!USE_VERTEX) return null; // Not needed for direct Anthropic API
+
   // Option 1: Direct access token (for testing)
   if (process.env.VERTEX_ACCESS_TOKEN) return process.env.VERTEX_ACCESS_TOKEN;
 
@@ -58,15 +64,34 @@ async function getAccessToken() {
 }
 
 async function callClaude(accessToken, body, maxRetries = 2) {
-  const url = `https://${VERTEX_REGION}-aiplatform.googleapis.com/v1/projects/${VERTEX_PROJECT}/locations/${VERTEX_REGION}/publishers/anthropic/models/${CLAUDE_MODEL}:rawPredict`;
+  let url, headers;
+
+  if (USE_VERTEX) {
+    // Vertex AI mode
+    url = `https://${VERTEX_REGION}-aiplatform.googleapis.com/v1/projects/${VERTEX_PROJECT}/locations/${VERTEX_REGION}/publishers/anthropic/models/${CLAUDE_MODEL}:rawPredict`;
+    headers = {
+      'Authorization': 'Bearer ' + accessToken,
+      'Content-Type': 'application/json',
+    };
+  } else {
+    // Direct Anthropic API mode
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not configured');
+    url = 'https://api.anthropic.com/v1/messages';
+    headers = {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'Content-Type': 'application/json',
+    };
+    // Remove vertex-specific field, add model field for direct API
+    delete body.anthropic_version;
+    body.model = CLAUDE_MODEL;
+  }
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const resp = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + accessToken,
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify(body),
     });
 
@@ -156,12 +181,12 @@ export default async function handler(req, res) {
   // === End Google OAuth handling ===
 
   try {
-    // Get Vertex AI access token
-    let vertexToken;
+    // Get access token (only needed for Vertex AI mode)
+    let accessToken = null;
     try {
-      vertexToken = await getAccessToken();
+      accessToken = await getAccessToken();
     } catch (authErr) {
-      return res.status(500).json({ error: 'Vertex AI auth failed: ' + authErr.message });
+      return res.status(500).json({ error: 'AI認証エラー: ' + authErr.message });
     }
 
     const { messages, system, googleToken, msToken, slackToken } = req.body;
@@ -1107,7 +1132,7 @@ export default async function handler(req, res) {
       if (system) reqBody.system = system;
       if (claudeTools.length > 0) reqBody.tools = claudeTools;
 
-      const data = await callClaude(vertexToken, reqBody);
+      const data = await callClaude(accessToken, reqBody);
 
       if (data.error) {
         const errMsg = data.error.message || JSON.stringify(data.error);
