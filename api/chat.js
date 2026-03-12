@@ -3,6 +3,34 @@
 import crypto from 'crypto';
 
 const CLAUDE_MODEL = 'claude-sonnet-4-6';
+
+// Build RFC 2822 raw email and return base64url-encoded string for Gmail API
+function buildGmailRaw({ to, subject, body, cc, bcc }) {
+  // MIME encode non-ASCII subject per RFC 2047
+  function mimeB(str) {
+    const b64 = Buffer.from(str, 'utf8').toString('base64');
+    // Split into chunks of 45 bytes (≈60 base64 chars) to stay under 75-char line limit
+    const chunks = [];
+    const raw = Buffer.from(str, 'utf8');
+    for (let i = 0; i < raw.length; i += 45) {
+      chunks.push('=?UTF-8?B?' + raw.slice(i, i + 45).toString('base64') + '?=');
+    }
+    return chunks.join('\n ');
+  }
+  const safeSubj = /[^\x20-\x7E]/.test(subject) ? mimeB(subject) : subject;
+  const lines = [
+    'MIME-Version: 1.0',
+    'To: ' + to,
+    'Subject: ' + safeSubj,
+    'Content-Type: text/plain; charset=UTF-8',
+    'Content-Transfer-Encoding: base64',
+  ];
+  if (cc) lines.push('Cc: ' + cc);
+  if (bcc) lines.push('Bcc: ' + bcc);
+  lines.push('', Buffer.from(body, 'utf8').toString('base64'));
+  const raw = lines.join('\r\n');
+  return Buffer.from(raw, 'utf8').toString('base64url');
+}
 const USE_VERTEX = process.env.USE_VERTEX === 'true';
 
 // Vertex AI config (for when quota is approved)
@@ -129,6 +157,16 @@ export default async function handler(req, res) {
 
   // === Return Google client ID (for frontend runtime config) ===
   const { action } = req.body || {};
+
+  // Debug: test email encoding
+  if (action === 'test-email-encoding') {
+    const testSubj = '📊 テスト件名｜2026年3月12日（木）';
+    const testBody = 'テスト本文です。';
+    const raw = buildGmailRaw({ to: 'test@example.com', subject: testSubj, body: testBody });
+    const decoded = Buffer.from(raw, 'base64url').toString('utf8');
+    return res.status(200).json({ version: 'v3-buildGmailRaw', raw: raw.substring(0, 100), decoded });
+  }
+
   if (action === 'get-config') {
     return res.status(200).json({
       clientId: process.env.VITE_GOOGLE_CLIENT_ID || '',
@@ -486,15 +524,7 @@ export default async function handler(req, res) {
           }
 
           case 'gmail_create_draft': {
-            const toLine = input.to;
-            const subj = input.subject;
-            const bodyText = input.body;
-            const encSubj = /[^\x20-\x7E]/.test(subj) ? '=?UTF-8?B?' + Buffer.from(subj, 'utf8').toString('base64') + '?=' : subj;
-            let rawEmail = 'To: ' + toLine + '\nSubject: ' + encSubj + '\nMIME-Version: 1.0\nContent-Type: text/plain; charset=utf-8\nContent-Transfer-Encoding: base64\n';
-            if (input.cc) rawEmail += 'Cc: ' + input.cc + '\n';
-            if (input.bcc) rawEmail += 'Bcc: ' + input.bcc + '\n';
-            rawEmail += '\n' + Buffer.from(bodyText, 'utf8').toString('base64');
-            const encoded = Buffer.from(rawEmail, 'utf8').toString('base64url');
+            const encoded = buildGmailRaw({ to: input.to, subject: input.subject, body: input.body, cc: input.cc, bcc: input.bcc });
             const r = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/drafts', {
               method: 'POST', headers: gh,
               body: JSON.stringify({ message: { raw: encoded } })
@@ -513,15 +543,7 @@ export default async function handler(req, res) {
           }
 
           case 'gmail_send_direct': {
-            const toLine = input.to;
-            const subj = input.subject;
-            const bodyText = input.body;
-            const encSubj2 = /[^\x20-\x7E]/.test(subj) ? '=?UTF-8?B?' + Buffer.from(subj, 'utf8').toString('base64') + '?=' : subj;
-            let rawEmail = 'To: ' + toLine + '\nSubject: ' + encSubj2 + '\nMIME-Version: 1.0\nContent-Type: text/plain; charset=utf-8\nContent-Transfer-Encoding: base64\n';
-            if (input.cc) rawEmail += 'Cc: ' + input.cc + '\n';
-            if (input.bcc) rawEmail += 'Bcc: ' + input.bcc + '\n';
-            rawEmail += '\n' + Buffer.from(bodyText, 'utf8').toString('base64');
-            const encoded = Buffer.from(rawEmail, 'utf8').toString('base64url');
+            const encoded = buildGmailRaw({ to: input.to, subject: input.subject, body: input.body, cc: input.cc, bcc: input.bcc });
             const r = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
               method: 'POST', headers: gh,
               body: JSON.stringify({ raw: encoded })
