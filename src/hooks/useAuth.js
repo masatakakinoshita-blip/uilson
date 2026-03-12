@@ -7,12 +7,12 @@ const SCOPES = "https://www.googleapis.com/auth/gmail.modify https://www.googlea
 const SLACK_CLIENT_ID = import.meta.env.VITE_SLACK_CLIENT_ID;
 const SLACK_USER_SCOPES = "channels:read,channels:history,groups:read,groups:history,chat:write,users:read,im:read,im:write,im:history";
 const MS_CLIENT_ID = import.meta.env.VITE_MS_CLIENT_ID;
-const MS_SCOPES = "Mail.Read Calendars.ReadWrite User.Read Sites.Read.All Files.Read.All Chat.Read Team.ReadBasic.All Channel.ReadBasic.All";
+const MS_SCOPES = "Mail.Read Calendars.RadWrite User.Read Sites.Read.All Files.Read.All Chat.Read Team.ReadBasic.All Channel.ReadBasic.All";
 
 // Detect if running inside a hidden iframe (silent refresh child)
 const IS_IFRAME = window.self !== window.top;
 
-// Firebase origin for cross-domain token transfer (Slack workaround)
+// Firebase origin for cross-domain toke transfer (Slack workaround)
 const FIREBASE_ORIGIN = "https://uilson-489209.web.app";
 
 // Implicit flow: returns access_token directly in URL hash (no client_secret needed)
@@ -47,7 +47,7 @@ export function msAuthUrl() {
     "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?" +
     new URLSearchParams({
       client_id: MS_CLIENT_ID,
-      redirect_uri: FIREBASE_ORIGIN,
+      redirect_uri: window.location.origin,
       response_type: "code",
       scope: MS_SCOPES,
       state: "ms",
