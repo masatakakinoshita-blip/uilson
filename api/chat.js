@@ -1052,33 +1052,92 @@ export default async function handler(req, res) {
             return result;
           }
 
-          // ----- Web Search (Google Custom Search → DuckDuckGo HTML scraping) -----
+          // ----- Web Search (Gemini Grounding with Google Search → Google News RSS fallback) -----
           case 'web_search': {
             const query = input.query || '';
 
-            // Try Google Custom Search first (if configured and billing enabled)
-            const googleSearchKey = process.env.GOOGLE_SEARCH_API_KEY;
-            const googleSearchCx = process.env.GOOGLE_SEARCH_CX;
-            if (googleSearchKey && googleSearchCx) {
+            // Primary: Gemini Grounding with Google Search (full web search via Google)
+            const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+            if (geminiKey) {
               try {
-                const gUrl = 'https://www.googleapis.com/customsearch/v1?key=' + googleSearchKey +
-                  '&cx=' + googleSearchCx + '&q=' + encodeURIComponent(query) + '&num=5&lr=lang_ja';
-                const gR = await fetch(gUrl);
-                const gD = await gR.json();
-                if (gD.items && gD.items.length > 0) {
-                  return {
-                    results: gD.items.slice(0, 5).map(item => ({
-                      title: item.title,
-                      snippet: item.snippet,
-                      link: item.link
-                    })),
-                    query
-                  };
+                const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + geminiKey;
+                const geminiBody = {
+                  contents: [{ parts: [{ text: 'Search the web for: ' + query + '\n\nReturn the most relevant and recent information with source URLs.' }] }],
+                  tools: [{ google_search: {} }],
+                  generationConfig: { temperature: 0.1, maxOutputTokens: 2048 }
+                };
+                const geminiR = await fetch(geminiUrl, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(geminiBody)
+                });
+                const geminiD = await geminiR.json();
+
+                if (geminiD.candidates && geminiD.candidates[0]) {
+                  const candidate = geminiD.candidates[0];
+                  const results = [];
+
+                  // Extract grounding chunks (actual search result sources)
+                  const grounding = candidate.groundingMetadata;
+                  if (grounding && grounding.groundingChunks) {
+                    for (const chunk of grounding.groundingChunks.slice(0, 8)) {
+                      if (chunk.web) {
+                        results.push({
+                          title: chunk.web.title || '',
+                          snippet: '',
+                          link: chunk.web.uri || ''
+                        });
+                      }
+                    }
+                  }
+
+                  // Extract grounding supports (text with source attribution)
+                  if (grounding && grounding.groundingSupports) {
+                    for (const support of grounding.groundingSupports) {
+                      const text = support.segment ? support.segment.text : '';
+                      if (text && support.groundingChunkIndices) {
+                        for (const idx of support.groundingChunkIndices) {
+                          if (results[idx] && !results[idx].snippet) {
+                            results[idx].snippet = text;
+                          }
+                        }
+                      }
+                    }
+                  }
+
+                  // Also get Gemini's synthesized answer as context
+                  const geminiText = candidate.content && candidate.content.parts
+                    ? candidate.content.parts.map(p => p.text || '').join('')
+                    : '';
+
+                  // Fill empty snippets from Gemini's answer
+                  for (const r of results) {
+                    if (!r.snippet && geminiText) {
+                      r.snippet = geminiText.substring(0, 200);
+                    }
+                  }
+
+                  if (results.length > 0) {
+                    console.log('[web_search] Gemini Grounding results:', results.length);
+                    return { results, query, summary: geminiText };
+                  }
+
+                  // If Gemini returned text but no grounding chunks, use the text as a result
+                  if (geminiText) {
+                    console.log('[web_search] Gemini text response (no grounding chunks)');
+                    return {
+                      results: [{ title: 'Google Search Results', snippet: geminiText, link: '' }],
+                      query,
+                      summary: geminiText
+                    };
+                  }
                 }
-              } catch (e) { /* fall through to DuckDuckGo */ }
+              } catch (e) {
+                console.log('[web_search] Gemini Grounding error:', e.message);
+              }
             }
 
-            // Google News RSS (reliable, no API key, works from servers)
+            // Fallback: Google News RSS (reliable, no API key)
             try {
               const newsUrl = 'https://news.google.com/rss/search?q=' + encodeURIComponent(query) + '&hl=ja&gl=JP&ceid=JP:ja';
               const newsR = await fetch(newsUrl, {
@@ -1106,16 +1165,14 @@ export default async function handler(req, res) {
                     });
                   }
                 }
-                console.log('[web_search] Google News RSS results:', newsResults.length);
-                if (newsResults.length > 0) {
-                  return { results: newsResults, query };
-                }
+                console.log('[web_search] Google News RSS fallback results:', newsResults.length);
+                if (newsResults.length > 0) return { results: newsResults, query };
               }
             } catch (e) {
               console.log('[web_search] Google News RSS error:', e.message);
             }
 
-            // Wikipedia API (for factual/knowledge queries)
+            // Last resort: Wikipedia API
             try {
               const wikiUrl = 'https://ja.wikipedia.org/w/api.php?action=query&list=search&srsearch=' +
                 encodeURIComponent(query) + '&srnamespace=0&srlimit=5&format=json&origin=*';
@@ -1128,28 +1185,13 @@ export default async function handler(req, res) {
                     snippet: (r.snippet || '').replace(/<[^>]+>/g, '').trim(),
                     link: 'https://ja.wikipedia.org/wiki/' + encodeURIComponent(r.title.replace(/ /g, '_'))
                   }));
-                  console.log('[web_search] Wikipedia results:', wikiResults.length);
+                  console.log('[web_search] Wikipedia fallback results:', wikiResults.length);
                   if (wikiResults.length > 0) return { results: wikiResults, query };
                 }
               }
             } catch (e) {
               console.log('[web_search] Wikipedia error:', e.message);
             }
-
-            // DuckDuckGo Instant Answer API (last resort)
-            try {
-              const ddgR = await fetch('https://api.duckduckgo.com/?q=' + encodeURIComponent(query) + '&format=json&no_html=1&skip_disambig=1');
-              const ddgD = await ddgR.json();
-              const results = [];
-              if (ddgD.Abstract) results.push({ title: ddgD.Heading || query, snippet: ddgD.Abstract, link: ddgD.AbstractURL || '' });
-              if (ddgD.Answer) results.push({ title: 'Direct Answer', snippet: ddgD.Answer, link: '' });
-              if (ddgD.RelatedTopics) {
-                for (const t of ddgD.RelatedTopics.slice(0, 5)) {
-                  if (t.Text) results.push({ title: t.Text.substring(0, 80), snippet: t.Text, link: t.FirstURL || '' });
-                }
-              }
-              if (results.length > 0) return { results, query };
-            } catch (e) { /* fall through */ }
 
             return { results: [], message: 'Web search returned no results for: ' + query + '. Please answer based on your training knowledge and note the information may not be fully current.' };
           }
