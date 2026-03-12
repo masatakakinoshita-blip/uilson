@@ -1091,27 +1091,27 @@ export default async function handler(req, res) {
               const ddgHtml = await ddgHtmlR.text();
               const htmlResults = [];
 
-              // Parse DuckDuckGo HTML results
-              const resultBlocks = ddgHtml.split('class="result ');
-              for (let i = 1; i < resultBlocks.length && htmlResults.length < 8; i++) {
-                const block = resultBlocks[i];
-                // Extract title
+              // Parse DuckDuckGo HTML results using web-result class (actual DDG structure)
+              const resultRegex = /class="result[^"]*web-result[^"]*"[\s\S]*?(?=class="result[^"]*web-result|class="nav-link"|$)/g;
+              let match;
+              while ((match = resultRegex.exec(ddgHtml)) !== null && htmlResults.length < 8) {
+                const block = match[0];
+                // Extract title from result__a
                 const titleMatch = block.match(/class="result__a"[^>]*>([\s\S]*?)<\/a>/);
                 let title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : '';
-                // Extract URL
-                const urlMatch = block.match(/class="result__url"[^>]*href="([^"]*)"/) ||
-                                 block.match(/class="result__a"[^>]*href="([^"]*)"/);
+                // Extract URL from result__a href
+                const hrefMatch = block.match(/class="result__a"[^>]*href="([^"]*)"/);
                 let link = '';
-                if (urlMatch) {
-                  link = urlMatch[1];
-                  if (link.startsWith('//duckduckgo.com/l/?uddg=')) {
+                if (hrefMatch) {
+                  link = hrefMatch[1];
+                  if (link.includes('uddg=')) {
                     const decoded = decodeURIComponent(link.split('uddg=')[1]?.split('&')[0] || '');
                     if (decoded) link = decoded;
                   }
                   if (!link.startsWith('http')) link = 'https://' + link.replace(/^\/+/, '');
                 }
-                // Extract snippet
-                const snippetMatch = block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/[at]/);
+                // Extract snippet from result__snippet
+                const snippetMatch = block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/(?:a|td|div|span)/);
                 let snippet = snippetMatch ? snippetMatch[1].replace(/<[^>]+>/g, '').trim() : '';
 
                 if (title && (snippet || link)) {
@@ -1119,10 +1119,39 @@ export default async function handler(req, res) {
                 }
               }
 
+              // Fallback: try splitting by result__body if web-result didn't match
+              if (htmlResults.length === 0 && ddgHtml.includes('result__body')) {
+                const bodyBlocks = ddgHtml.split('result__body');
+                for (let i = 1; i < bodyBlocks.length && htmlResults.length < 8; i++) {
+                  const block = bodyBlocks[i];
+                  const titleMatch = block.match(/class="result__a"[^>]*>([\s\S]*?)<\/a>/);
+                  let title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : '';
+                  const hrefMatch = block.match(/class="result__a"[^>]*href="([^"]*)"/);
+                  let link = '';
+                  if (hrefMatch) {
+                    link = hrefMatch[1];
+                    if (link.includes('uddg=')) {
+                      const decoded = decodeURIComponent(link.split('uddg=')[1]?.split('&')[0] || '');
+                      if (decoded) link = decoded;
+                    }
+                    if (!link.startsWith('http')) link = 'https://' + link.replace(/^\/+/, '');
+                  }
+                  const snippetMatch = block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/(?:a|td|div|span)/);
+                  let snippet = snippetMatch ? snippetMatch[1].replace(/<[^>]+>/g, '').trim() : '';
+                  if (title && (snippet || link)) {
+                    htmlResults.push({ title, snippet: snippet || title, link });
+                  }
+                }
+              }
+
+              console.log('[web_search] DDG HTML length:', ddgHtml.length, 'results found:', htmlResults.length, 'has web-result:', ddgHtml.includes('web-result'), 'has result__body:', ddgHtml.includes('result__body'));
+
               if (htmlResults.length > 0) {
                 return { results: htmlResults, query };
               }
-            } catch (e) { /* fall through to Instant Answer API */ }
+            } catch (e) {
+              console.log('[web_search] DDG HTML error:', e.message);
+            }
 
             // DuckDuckGo Instant Answer API (last resort)
             try {
