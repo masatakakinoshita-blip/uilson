@@ -1068,8 +1068,23 @@ export default async function handler(req, res) {
             if (geminiKey) {
               try {
                 const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + geminiKey;
+
+                // Detect query type for optimized prompting
+                const ql = query.toLowerCase();
+                const isFinancial = /株価|stock|price|為替|exchange rate|ドル|円|usd|jpy|eur|市場|market|時価総額|配当|nasdaq|nyse|日経|topix|s&p|ダウ/.test(ql);
+                const isStats = /統計|数値|データ|率|%|成長率|gdp|人口|売上|収益|利益/.test(ql);
+
+                let geminiPrompt;
+                if (isFinancial) {
+                  geminiPrompt = query + '\n\n上記について検索し、具体的な数値（株価、為替レート、時価総額、前日比など）を含めて回答してください。「〇〇円」「〇〇ドル」「前日比+〇%」のように、必ず具体的な数字を含めてください。';
+                } else if (isStats) {
+                  geminiPrompt = query + '\n\n上記について検索し、具体的な数値データを含めて回答してください。数字、パーセンテージ、金額など、定量的な情報を必ず含めてください。';
+                } else {
+                  geminiPrompt = 'Search the web for: ' + query + '\n\nReturn the most relevant and recent information with source URLs.';
+                }
+
                 const geminiBody = {
-                  contents: [{ parts: [{ text: 'Search the web for: ' + query + '\n\nReturn the most relevant and recent information with source URLs.' }] }],
+                  contents: [{ parts: [{ text: geminiPrompt }] }],
                   tools: [{ google_search: {} }],
                   generationConfig: { temperature: 0.1, maxOutputTokens: 2048 }
                 };
@@ -1103,13 +1118,16 @@ export default async function handler(req, res) {
                   }
 
                   // Extract grounding supports (text with source attribution)
+                  // Accumulate ALL support text per source for richer data
                   if (grounding && grounding.groundingSupports) {
                     for (const support of grounding.groundingSupports) {
                       const text = support.segment ? support.segment.text : '';
                       if (text && support.groundingChunkIndices) {
                         for (const idx of support.groundingChunkIndices) {
-                          if (results[idx] && !results[idx].snippet) {
-                            results[idx].snippet = text;
+                          if (results[idx]) {
+                            results[idx].snippet = results[idx].snippet
+                              ? results[idx].snippet + ' ' + text
+                              : text;
                           }
                         }
                       }
