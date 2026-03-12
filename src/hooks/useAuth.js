@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 
-// Hardcoded UILSON project OAuth client ID (project #1061433368940)
-// This bypasses Vercel env var issues on the old deployment
-const GOOGLE_CLIENT_ID = "1061433368940-efg0dtq7j5linpfbimcnlu14b8da92ht.apps.googleusercontent.com";
+// Use VITE_GOOGLE_CLIENT_ID from environment (set in .env / functions/.env)
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const GOOGLE_REDIRECT = window.location.origin;
 const SCOPES = "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/documents";
 const SLACK_CLIENT_ID = import.meta.env.VITE_SLACK_CLIENT_ID;
@@ -12,6 +11,9 @@ const MS_SCOPES = "Mail.Read Calendars.ReadWrite User.Read Sites.Read.All Files.
 
 // Detect if running inside a hidden iframe (silent refresh child)
 const IS_IFRAME = window.self !== window.top;
+
+// Firebase origin for cross-domain token transfer (Slack workaround)
+const FIREBASE_ORIGIN = "https://uilson-489209.web.app";
 
 // Implicit flow: returns access_token directly in URL hash (no client_secret needed)
 // promptOverride allows silent refresh with "none"
@@ -34,7 +36,7 @@ export function slackAuthUrl() {
     new URLSearchParams({
       client_id: SLACK_CLIENT_ID,
       user_scope: SLACK_USER_SCOPES,
-      redirect_uri: window.location.origin,
+      redirect_uri: "https://uilson.vercel.app",
       state: "slack",
     })
   );
@@ -45,7 +47,7 @@ export function msAuthUrl() {
     "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?" +
     new URLSearchParams({
       client_id: MS_CLIENT_ID,
-      redirect_uri: window.location.origin,
+      redirect_uri: FIREBASE_ORIGIN,
       response_type: "code",
       scope: MS_SCOPES,
       state: "ms",
@@ -68,6 +70,17 @@ export default function useAuth() {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
     const state = params.get("state");
+
+    // Handle Slack token transfer from Vercel
+    if (state === "slack_transfer") {
+      const slackTok = params.get("slack_token");
+      if (slackTok) {
+        localStorage.setItem("slack_token", slackTok);
+        setSlackToken(slackTok);
+        window.history.replaceState({}, "", window.location.pathname);
+        return;
+      }
+    }
 
     // Handle MS auth code
     if (code && state === "ms") {
@@ -97,6 +110,11 @@ export default function useAuth() {
         .then((r) => r.json())
         .then((data) => {
           if (data.ok && data.access_token) {
+            // If we're on Vercel but should be on Firebase, transfer the token
+            if (window.location.origin !== FIREBASE_ORIGIN && FIREBASE_ORIGIN) {
+              window.location.href = FIREBASE_ORIGIN + "?slack_token=" + encodeURIComponent(data.access_token) + "&state=slack_transfer";
+              return;
+            }
             localStorage.setItem("slack_token", data.access_token);
             setSlackToken(data.access_token);
             window.history.replaceState({}, "", window.location.pathname);
