@@ -10,9 +10,9 @@ export default async function handler(req, res) {
       client_id: clientId,
       client_secret: clientSecret,
       code,
-      redirect_uri: redirect_uri || "https://uilson.vercel.app",
+      redirect_uri: redirect_uri || process.env.APP_BASE_URL || "https://uilson.vercel.app",
       grant_type: "authorization_code",
-      scope: "Mail.Read Calendars.ReadWrite User.Read Sites.Read.All Files.Read.All Chat.Read Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Read.All",
+      scope: "Mail.Read Calendars.ReadWrite User.Read Sites.Read.All Files.Read.All Chat.Read Team.ReadBasic.All Channel.ReadBasic.All",
     });
 
     const resp = await fetch(
