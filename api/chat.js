@@ -1144,7 +1144,7 @@ export default async function handler(req, res) {
                 }
               }
 
-              console.log('[web_search] DDG HTML length:', ddgHtml.length, 'results found:', htmlResults.length, 'has web-result:', ddgHtml.includes('web-result'), 'has result__body:', ddgHtml.includes('result__body'));
+              console.log('[web_search] DDG HTML length:', ddgHtml.length, 'results found:', htmlResults.length, 'has web-result:', ddgHtml.includes('web-result'), 'has result__body:', ddgHtml.includes('result__body'), 'first500:', ddgHtml.substring(0, 500));
 
               if (htmlResults.length > 0) {
                 return { results: htmlResults, query };
