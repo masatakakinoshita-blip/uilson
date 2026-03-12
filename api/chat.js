@@ -1078,64 +1078,62 @@ export default async function handler(req, res) {
               } catch (e) { /* fall through to DuckDuckGo */ }
             }
 
-            // SearXNG meta-search (primary fallback - JSON API, no key needed)
-            const searxInstances = [
-              'https://search.bus-hit.me',
-              'https://searx.be',
-              'https://search.sapti.me',
-              'https://searx.tiekoetter.com'
-            ];
-            for (const instance of searxInstances) {
-              try {
-                const sUrl = instance + '/search?q=' + encodeURIComponent(query) + '&format=json&language=ja&time_range=&safesearch=0&categories=general';
-                const sR = await fetch(sUrl, {
-                  headers: { 'Accept': 'application/json', 'User-Agent': 'UILSON/1.0' },
-                  signal: AbortSignal.timeout(5000)
-                });
-                if (!sR.ok) continue;
-                const sD = await sR.json();
-                if (sD.results && sD.results.length > 0) {
-                  const searxResults = sD.results.slice(0, 8).map(r => ({
-                    title: r.title || '',
-                    snippet: r.content || r.title || '',
-                    link: r.url || ''
-                  })).filter(r => r.title && r.link);
-                  if (searxResults.length > 0) {
-                    console.log('[web_search] SearXNG success from', instance, 'results:', searxResults.length);
-                    return { results: searxResults, query };
+            // Google News RSS (reliable, no API key, works from servers)
+            try {
+              const newsUrl = 'https://news.google.com/rss/search?q=' + encodeURIComponent(query) + '&hl=ja&gl=JP&ceid=JP:ja';
+              const newsR = await fetch(newsUrl, {
+                headers: { 'User-Agent': 'Mozilla/5.0 (compatible; UILSON/1.0)' }
+              });
+              if (newsR.ok) {
+                const rssXml = await newsR.text();
+                const newsResults = [];
+                const items = rssXml.split('<item>').slice(1);
+                for (const item of items.slice(0, 8)) {
+                  const titleM = item.match(/<title><!\[CDATA\[([\s\S]*?)\]\]>|<title>([\s\S]*?)<\/title>/);
+                  const linkM = item.match(/<link>([\s\S]*?)<\/link>|<link[^>]*href="([^"]*)"/);
+                  const descM = item.match(/<description><!\[CDATA\[([\s\S]*?)\]\]>|<description>([\s\S]*?)<\/description>/);
+                  const sourceM = item.match(/<source[^>]*>([\s\S]*?)<\/source>/);
+                  const title = (titleM ? (titleM[1] || titleM[2] || '') : '').replace(/<[^>]+>/g, '').trim();
+                  let link = linkM ? (linkM[1] || linkM[2] || '') : '';
+                  link = link.trim();
+                  const desc = (descM ? (descM[1] || descM[2] || '') : '').replace(/<[^>]+>/g, '').trim();
+                  const source = sourceM ? sourceM[1].trim() : '';
+                  if (title && link) {
+                    newsResults.push({
+                      title: title,
+                      snippet: desc || (source ? source + ' - ' + title : title),
+                      link: link
+                    });
                   }
                 }
-              } catch (e) {
-                console.log('[web_search] SearXNG failed:', instance, e.message);
+                console.log('[web_search] Google News RSS results:', newsResults.length);
+                if (newsResults.length > 0) {
+                  return { results: newsResults, query };
+                }
               }
+            } catch (e) {
+              console.log('[web_search] Google News RSS error:', e.message);
             }
 
-            // DuckDuckGo lite (secondary fallback)
+            // Wikipedia API (for factual/knowledge queries)
             try {
-              const liteR = await fetch('https://lite.duckduckgo.com/lite/', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/x-www-form-urlencoded',
-                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                },
-                body: 'q=' + encodeURIComponent(query),
-                signal: AbortSignal.timeout(5000)
-              });
-              const liteHtml = await liteR.text();
-              const liteResults = [];
-              // DDG lite uses simple table rows with class="result-link" and "result-snippet"
-              const linkMatches = [...liteHtml.matchAll(/<a[^>]*class="result-link"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g)];
-              const snippetMatches = [...liteHtml.matchAll(/class="result-snippet"[^>]*>([\s\S]*?)<\/td>/g)];
-              for (let i = 0; i < Math.min(linkMatches.length, 8); i++) {
-                const link = linkMatches[i][1] || '';
-                const title = (linkMatches[i][2] || '').replace(/<[^>]+>/g, '').trim();
-                const snippet = snippetMatches[i] ? snippetMatches[i][1].replace(/<[^>]+>/g, '').trim() : title;
-                if (title && link) liteResults.push({ title, snippet, link });
+              const wikiUrl = 'https://ja.wikipedia.org/w/api.php?action=query&list=search&srsearch=' +
+                encodeURIComponent(query) + '&srnamespace=0&srlimit=5&format=json&origin=*';
+              const wikiR = await fetch(wikiUrl);
+              if (wikiR.ok) {
+                const wikiD = await wikiR.json();
+                if (wikiD.query && wikiD.query.search && wikiD.query.search.length > 0) {
+                  const wikiResults = wikiD.query.search.map(r => ({
+                    title: r.title,
+                    snippet: (r.snippet || '').replace(/<[^>]+>/g, '').trim(),
+                    link: 'https://ja.wikipedia.org/wiki/' + encodeURIComponent(r.title.replace(/ /g, '_'))
+                  }));
+                  console.log('[web_search] Wikipedia results:', wikiResults.length);
+                  if (wikiResults.length > 0) return { results: wikiResults, query };
+                }
               }
-              console.log('[web_search] DDG lite length:', liteHtml.length, 'results:', liteResults.length);
-              if (liteResults.length > 0) return { results: liteResults, query };
             } catch (e) {
-              console.log('[web_search] DDG lite error:', e.message);
+              console.log('[web_search] Wikipedia error:', e.message);
             }
 
             // DuckDuckGo Instant Answer API (last resort)
