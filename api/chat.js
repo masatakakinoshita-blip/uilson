@@ -1052,41 +1052,94 @@ export default async function handler(req, res) {
             return result;
           }
 
-          // ----- Web Search (Google Custom Search or DuckDuckGo) -----
+          // ----- Web Search (Google Custom Search → DuckDuckGo HTML scraping) -----
           case 'web_search': {
             const query = input.query || '';
+
+            // Try Google Custom Search first (if configured and billing enabled)
             const googleSearchKey = process.env.GOOGLE_SEARCH_API_KEY;
             const googleSearchCx = process.env.GOOGLE_SEARCH_CX;
             if (googleSearchKey && googleSearchCx) {
-              const url = 'https://www.googleapis.com/customsearch/v1?key=' + googleSearchKey +
-                '&cx=' + googleSearchCx + '&q=' + encodeURIComponent(query) + '&num=5&lr=lang_ja';
-              const r = await fetch(url);
-              const d = await r.json();
-              if (d.items) {
-                return {
-                  results: d.items.slice(0, 5).map(item => ({
-                    title: item.title,
-                    snippet: item.snippet,
-                    link: item.link
-                  })),
-                  query
-                };
+              try {
+                const gUrl = 'https://www.googleapis.com/customsearch/v1?key=' + googleSearchKey +
+                  '&cx=' + googleSearchCx + '&q=' + encodeURIComponent(query) + '&num=5&lr=lang_ja';
+                const gR = await fetch(gUrl);
+                const gD = await gR.json();
+                if (gD.items && gD.items.length > 0) {
+                  return {
+                    results: gD.items.slice(0, 5).map(item => ({
+                      title: item.title,
+                      snippet: item.snippet,
+                      link: item.link
+                    })),
+                    query
+                  };
+                }
+              } catch (e) { /* fall through to DuckDuckGo */ }
+            }
+
+            // DuckDuckGo HTML scraping (primary fallback - returns real search results)
+            try {
+              const ddgHtmlR = await fetch('https://html.duckduckgo.com/html/', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/x-www-form-urlencoded',
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                },
+                body: 'q=' + encodeURIComponent(query) + '&kl=jp-jp'
+              });
+              const ddgHtml = await ddgHtmlR.text();
+              const htmlResults = [];
+
+              // Parse DuckDuckGo HTML results
+              const resultBlocks = ddgHtml.split('class="result ');
+              for (let i = 1; i < resultBlocks.length && htmlResults.length < 8; i++) {
+                const block = resultBlocks[i];
+                // Extract title
+                const titleMatch = block.match(/class="result__a"[^>]*>([\s\S]*?)<\/a>/);
+                let title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : '';
+                // Extract URL
+                const urlMatch = block.match(/class="result__url"[^>]*href="([^"]*)"/) ||
+                                 block.match(/class="result__a"[^>]*href="([^"]*)"/);
+                let link = '';
+                if (urlMatch) {
+                  link = urlMatch[1];
+                  if (link.startsWith('//duckduckgo.com/l/?uddg=')) {
+                    const decoded = decodeURIComponent(link.split('uddg=')[1]?.split('&')[0] || '');
+                    if (decoded) link = decoded;
+                  }
+                  if (!link.startsWith('http')) link = 'https://' + link.replace(/^\/+/, '');
+                }
+                // Extract snippet
+                const snippetMatch = block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/[at]/);
+                let snippet = snippetMatch ? snippetMatch[1].replace(/<[^>]+>/g, '').trim() : '';
+
+                if (title && (snippet || link)) {
+                  htmlResults.push({ title, snippet: snippet || title, link });
+                }
               }
-            }
-            const ddgR = await fetch('https://api.duckduckgo.com/?q=' + encodeURIComponent(query) + '&format=json&no_html=1&skip_disambig=1');
-            const ddgD = await ddgR.json();
-            const results = [];
-            if (ddgD.Abstract) results.push({ title: ddgD.Heading || query, snippet: ddgD.Abstract, link: ddgD.AbstractURL || '' });
-            if (ddgD.Answer) results.push({ title: 'Direct Answer', snippet: ddgD.Answer, link: '' });
-            if (ddgD.RelatedTopics) {
-              for (const t of ddgD.RelatedTopics.slice(0, 5)) {
-                if (t.Text) results.push({ title: t.Text.substring(0, 80), snippet: t.Text, link: t.FirstURL || '' });
+
+              if (htmlResults.length > 0) {
+                return { results: htmlResults, query };
               }
-            }
-            if (results.length === 0) {
-              return { results: [], message: 'Web search returned no results for: ' + query + '. Please answer based on your training knowledge and note the information may not be fully current.' };
-            }
-            return { results, query };
+            } catch (e) { /* fall through to Instant Answer API */ }
+
+            // DuckDuckGo Instant Answer API (last resort)
+            try {
+              const ddgR = await fetch('https://api.duckduckgo.com/?q=' + encodeURIComponent(query) + '&format=json&no_html=1&skip_disambig=1');
+              const ddgD = await ddgR.json();
+              const results = [];
+              if (ddgD.Abstract) results.push({ title: ddgD.Heading || query, snippet: ddgD.Abstract, link: ddgD.AbstractURL || '' });
+              if (ddgD.Answer) results.push({ title: 'Direct Answer', snippet: ddgD.Answer, link: '' });
+              if (ddgD.RelatedTopics) {
+                for (const t of ddgD.RelatedTopics.slice(0, 5)) {
+                  if (t.Text) results.push({ title: t.Text.substring(0, 80), snippet: t.Text, link: t.FirstURL || '' });
+                }
+              }
+              if (results.length > 0) return { results, query };
+            } catch (e) { /* fall through */ }
+
+            return { results: [], message: 'Web search returned no results for: ' + query + '. Please answer based on your training knowledge and note the information may not be fully current.' };
           }
 
           default: return { error: 'Unknown tool: ' + name };
