@@ -489,10 +489,11 @@ export default async function handler(req, res) {
             const toLine = input.to;
             const subj = input.subject;
             const bodyText = input.body;
-            let rawEmail = 'To: ' + toLine + '\nSubject: ' + subj + '\nContent-Type: text/plain; charset=utf-8\n';
+            const mimeSubj = /[^\x20-\x7E]/.test(subj) ? '=?UTF-8?B?' + btoa(unescape(encodeURIComponent(subj))) + '?=' : subj;
+            let rawEmail = 'To: ' + toLine + '\nSubject: ' + mimeSubj + '\nMIME-Version: 1.0\nContent-Type: text/plain; charset=utf-8\nContent-Transfer-Encoding: base64\n';
             if (input.cc) rawEmail += 'Cc: ' + input.cc + '\n';
             if (input.bcc) rawEmail += 'Bcc: ' + input.bcc + '\n';
-            rawEmail += '\n' + bodyText;
+            rawEmail += '\n' + btoa(unescape(encodeURIComponent(bodyText)));
             const encoded = btoa(unescape(encodeURIComponent(rawEmail))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
             const r = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/drafts', {
               method: 'POST', headers: gh,
@@ -515,10 +516,11 @@ export default async function handler(req, res) {
             const toLine = input.to;
             const subj = input.subject;
             const bodyText = input.body;
-            let rawEmail = 'To: ' + toLine + '\nSubject: ' + subj + '\nContent-Type: text/plain; charset=utf-8\n';
+            const mimeSubj2 = /[^\x20-\x7E]/.test(subj) ? '=?UTF-8?B?' + btoa(unescape(encodeURIComponent(subj))) + '?=' : subj;
+            let rawEmail = 'To: ' + toLine + '\nSubject: ' + mimeSubj2 + '\nMIME-Version: 1.0\nContent-Type: text/plain; charset=utf-8\nContent-Transfer-Encoding: base64\n';
             if (input.cc) rawEmail += 'Cc: ' + input.cc + '\n';
             if (input.bcc) rawEmail += 'Bcc: ' + input.bcc + '\n';
-            rawEmail += '\n' + bodyText;
+            rawEmail += '\n' + btoa(unescape(encodeURIComponent(bodyText)));
             const encoded = btoa(unescape(encodeURIComponent(rawEmail))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
             const r = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
               method: 'POST', headers: gh,
