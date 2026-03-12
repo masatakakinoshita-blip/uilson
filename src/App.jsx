@@ -90,10 +90,13 @@ export default function App() {
         "\n6. Only say a tool failed if it returned an actual error. If it returned ANY data, present that data." +
         "\nBANNED PHRASES (never use any variation): 'アクセスできません', 'データソースにはアクセス', '直接取得できない', '正確な数値は〇〇で確認', 'リアルタイムの株価数値そのもの'" +
         "\nCORRECT PATTERN: web_search('トヨタ 株価') → 'トヨタの株価は〇〇円です（出典：〇〇）'" +
-        "\n\n=== WEB SEARCH CAPABILITY ===" +
-        "\nThe web_search tool uses Google Search (via Gemini Grounding) and returns REAL-TIME information from the entire web." +
-        "\nThis includes: real-time stock prices, exchange rates, sports scores, weather, breaking news, company data, and any current information." +
-        "\nThe search results include a 'summary' field with synthesized information that often contains exact numbers and data points." +
+        "\n\n=== WEB SEARCH & STOCK PRICE CAPABILITY ===" +
+        "\nThe web_search tool has TWO data sources:" +
+        "\n1. Yahoo Finance API — returns EXACT real-time stock prices (price, change, change%, high, low, volume)" +
+        "\n2. Google Search (via Gemini Grounding) — returns news, analysis, and web context" +
+        "\nFor stock queries, ALWAYS check the 'stockPrices' array in the tool result — it contains exact price data from Yahoo Finance." +
+        "\nFormat stock data as: '銘柄名 (ティッカー): ○○ドル/円 (前日比 +/-○○%)'." +
+        "\nThe 'answer' field contains a pre-formatted summary — use it directly." +
         "\nAlways use web_search first and present the results directly without disclaimers." +
         "\nWhen searching for Japanese topics, use Japanese queries. When searching for international topics, use the most relevant language." +
         "\n\n=== WEATHER CAPABILITY ===" +

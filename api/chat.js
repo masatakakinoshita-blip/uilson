@@ -412,7 +412,7 @@ export default async function handler(req, res) {
       },
       {
         name: 'web_search',
-        description: 'Search the web for current information using Google Search. Returns REAL-TIME data including stock prices, exchange rates, and statistics. For financial queries (株価, stock price, 為替), the response "answer" field contains exact numbers — report them directly to the user without any disclaimers. Always use this when asked "調べて" or for current events/data.',
+        description: 'Search the web for current information. For stock/financial queries, returns REAL-TIME stock prices from Yahoo Finance in the "stockPrices" array (ticker, price, change, changePercent, currency). ALWAYS report the exact prices from stockPrices. Also returns Google Search context. For any query, check "answer" field first — it contains pre-formatted data to report directly. NEVER add disclaimers about data sources.',
         input_schema: { type: 'object', properties: { query: { type: 'string', description: 'Search query in the most relevant language (use Japanese for Japanese topics)' } }, required: ['query'] }
       }
     ];
@@ -1059,20 +1059,122 @@ export default async function handler(req, res) {
             return result;
           }
 
-          // ----- Web Search (Gemini Grounding with Google Search → Google News RSS fallback) -----
+          // ----- Web Search (Yahoo Finance for stocks + Gemini Grounding + fallbacks) -----
           case 'web_search': {
             const query = input.query || '';
 
-            // Primary: Gemini Grounding with Google Search (full web search via Google)
+            // Detect query type
+            const ql = query.toLowerCase();
+            const isFinancial = /株価|stock|price|為替|exchange rate|ドル|円|usd|jpy|eur|市場|market|時価総額|配当|nasdaq|nyse|日経|topix|s&p|ダウ|ticker/.test(ql);
+            const isStats = /統計|数値|データ|率|%|成長率|gdp|人口|売上|収益|利益/.test(ql);
+
+            // ===== YAHOO FINANCE: Get actual stock prices for financial queries =====
+            let stockData = null;
+            if (isFinancial) {
+              try {
+                // Extract ticker symbols from query (e.g., NVDA, 7203.T, AAPL)
+                const tickerPatterns = query.match(/\b[A-Z]{1,5}(?:\.[A-Z]{1,2})?\b/g) || [];
+                // Map common Japanese company names to tickers
+                const jpCompanyMap = {
+                  'トヨタ': '7203.T', 'ソニー': '6758.T', 'ソフトバンク': '9984.T',
+                  'ホンダ': '7267.T', '任天堂': '7974.T', 'パナソニック': '6752.T',
+                  'キーエンス': '6861.T', 'ファーストリテイリング': '9983.T', 'ユニクロ': '9983.T',
+                  '日立': '6501.T', '三菱UFJ': '8306.T', '三井住友': '8316.T',
+                  'みずほ': '8411.T', 'NTT': '9432.T', 'KDDI': '9433.T',
+                  'ドコモ': '9432.T', '東京エレクトロン': '8035.T', 'リクルート': '6098.T',
+                  'ダイキン': '6367.T', '信越化学': '4063.T', 'デンソー': '6902.T',
+                  '村田製作所': '6981.T', 'SMC': '6273.T', 'HOYA': '7741.T',
+                  'テルモ': '4543.T', '中外製薬': '4519.T', '第一三共': '4568.T',
+                  'エーザイ': '4523.T', 'オリエンタルランド': '4661.T',
+                  'メルカリ': '4385.T', 'ZOZO': '3092.T', 'サイバーエージェント': '4751.T',
+                  '楽天': '4755.T', 'LINE': '4689.T', 'シャープ': '6753.T',
+                  '日産': '7201.T', 'スズキ': '7269.T', 'マツダ': '7261.T',
+                  '富士通': '6702.T', 'NEC': '6701.T', '東芝': '6502.T',
+                  'アップル': 'AAPL', 'アマゾン': 'AMZN', 'グーグル': 'GOOGL',
+                  'マイクロソフト': 'MSFT', 'テスラ': 'TSLA', 'メタ': 'META',
+                  'エヌビディア': 'NVDA', 'NVIDIA': 'NVDA', 'TSM': 'TSM', 'TSMC': 'TSM',
+                  'AMD': 'AMD', 'インテル': 'INTC'
+                };
+                const tickers = [...tickerPatterns];
+                for (const [name, ticker] of Object.entries(jpCompanyMap)) {
+                  if (query.includes(name)) tickers.push(ticker);
+                }
+                // Also handle US tickers without dots
+                const usTickerMap = {
+                  'NVDA': 'NVDA', 'AAPL': 'AAPL', 'GOOGL': 'GOOGL', 'GOOG': 'GOOG',
+                  'MSFT': 'MSFT', 'AMZN': 'AMZN', 'META': 'META', 'TSLA': 'TSLA',
+                  'TSM': 'TSM', 'AMD': 'AMD', 'INTC': 'INTC', 'NFLX': 'NFLX',
+                  'AVGO': 'AVGO', 'COST': 'COST', 'CRM': 'CRM', 'ORCL': 'ORCL',
+                  'ADBE': 'ADBE', 'QCOM': 'QCOM', 'TXN': 'TXN', 'PLTR': 'PLTR',
+                  'ARM': 'ARM', 'SMCI': 'SMCI', 'MRVL': 'MRVL', 'MU': 'MU',
+                  'SNOW': 'SNOW', 'UBER': 'UBER', 'COIN': 'COIN',
+                };
+                // Deduplicate tickers
+                const uniqueTickers = [...new Set(tickers)].filter(t => t.length >= 1 && t.length <= 7);
+
+                if (uniqueTickers.length > 0) {
+                  console.log('[web_search] Yahoo Finance tickers:', uniqueTickers);
+                  const stockResults = [];
+                  for (const ticker of uniqueTickers.slice(0, 5)) {
+                    try {
+                      const yahooUrl = 'https://query2.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(ticker) + '?interval=1d&range=5d';
+                      const abortY = new AbortController();
+                      const timeoutY = setTimeout(() => abortY.abort(), 8000);
+                      const yR = await fetch(yahooUrl, {
+                        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; UILSON/1.0)' },
+                        signal: abortY.signal
+                      });
+                      clearTimeout(timeoutY);
+                      if (yR.ok) {
+                        const yD = await yR.json();
+                        const result = yD.chart?.result?.[0];
+                        if (result) {
+                          const meta = result.meta;
+                          const price = meta.regularMarketPrice;
+                          const prevClose = meta.chartPreviousClose || meta.previousClose;
+                          const currency = meta.currency || 'USD';
+                          const name = meta.shortName || meta.longName || ticker;
+                          const exchange = meta.exchangeName || '';
+                          const change = prevClose ? (price - prevClose) : null;
+                          const changePercent = prevClose ? ((price - prevClose) / prevClose * 100) : null;
+                          const marketTime = meta.regularMarketTime ? new Date(meta.regularMarketTime * 1000).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : '';
+
+                          stockResults.push({
+                            ticker,
+                            name,
+                            price,
+                            currency,
+                            change: change !== null ? change.toFixed(2) : null,
+                            changePercent: changePercent !== null ? changePercent.toFixed(2) : null,
+                            exchange,
+                            marketTime,
+                            previousClose: prevClose,
+                            dayHigh: meta.regularMarketDayHigh,
+                            dayLow: meta.regularMarketDayLow,
+                            volume: meta.regularMarketVolume,
+                            marketCap: meta.marketCap
+                          });
+                          console.log('[web_search] Yahoo Finance OK:', ticker, price, currency);
+                        }
+                      }
+                    } catch (e) {
+                      console.log('[web_search] Yahoo Finance error for', ticker, ':', e.message);
+                    }
+                  }
+                  if (stockResults.length > 0) {
+                    stockData = stockResults;
+                  }
+                }
+              } catch (e) {
+                console.log('[web_search] Yahoo Finance overall error:', e.message);
+              }
+            }
+
+            // ===== GEMINI GROUNDING: Get web context/analysis =====
             const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
             if (geminiKey) {
               try {
                 const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + geminiKey;
-
-                // Detect query type for optimized prompting
-                const ql = query.toLowerCase();
-                const isFinancial = /株価|stock|price|為替|exchange rate|ドル|円|usd|jpy|eur|市場|market|時価総額|配当|nasdaq|nyse|日経|topix|s&p|ダウ/.test(ql);
-                const isStats = /統計|数値|データ|率|%|成長率|gdp|人口|売上|収益|利益/.test(ql);
 
                 let geminiPrompt;
                 if (isFinancial) {
@@ -1146,28 +1248,30 @@ export default async function handler(req, res) {
                     }
                   }
 
-                  if (results.length > 0) {
-                    console.log('[web_search] Gemini Grounding results:', results.length, 'financial:', isFinancial);
-                    const resp = { results, query, summary: geminiText };
-                    // For financial/stats queries, add explicit instruction to use the data
-                    if (isFinancial || isStats) {
+                  if (results.length > 0 || geminiText) {
+                    console.log('[web_search] Gemini Grounding results:', results.length, 'financial:', isFinancial, 'hasStockData:', !!stockData);
+                    const resp = { results: results.length > 0 ? results : [{ title: 'Google Search Results', snippet: geminiText, link: '' }], query, summary: geminiText };
+
+                    // Inject Yahoo Finance stock data into the response
+                    if (stockData) {
+                      resp.stockPrices = stockData;
+                      let stockSummary = '【リアルタイム株価データ（Yahoo Finance）】\n';
+                      for (const s of stockData) {
+                        const sign = parseFloat(s.change) >= 0 ? '+' : '';
+                        const currSymbol = s.currency === 'JPY' ? '¥' : (s.currency === 'USD' ? '$' : s.currency + ' ');
+                        stockSummary += `${s.name} (${s.ticker}): ${currSymbol}${s.price?.toLocaleString()} `;
+                        if (s.change !== null) stockSummary += `前日比 ${sign}${s.change} (${sign}${s.changePercent}%) `;
+                        if (s.exchange) stockSummary += `[${s.exchange}] `;
+                        if (s.marketTime) stockSummary += `(${s.marketTime}時点)`;
+                        stockSummary += '\n';
+                        if (s.dayHigh && s.dayLow) stockSummary += `  高値: ${currSymbol}${s.dayHigh?.toLocaleString()} / 安値: ${currSymbol}${s.dayLow?.toLocaleString()}\n`;
+                        if (s.previousClose) stockSummary += `  前日終値: ${currSymbol}${s.previousClose?.toLocaleString()}\n`;
+                      }
+                      resp.answer = stockSummary + '\n' + (geminiText || '');
+                      resp.instruction = 'CRITICAL: The "stockPrices" array contains REAL-TIME stock price data from Yahoo Finance. You MUST report these exact prices to the user. Format: "銘柄名 (ティッカー): ○○ドル/円 (前日比 +/-○○%)". The "answer" field has a pre-formatted summary — use it. Do NOT add any disclaimers.';
+                    } else if (isFinancial || isStats) {
                       resp.answer = geminiText;
                       resp.instruction = 'IMPORTANT: The "answer" field above contains real-time data from Google Search. Report these numbers directly to the user. Do NOT add disclaimers or suggest checking other sources.';
-                    }
-                    return resp;
-                  }
-
-                  // If Gemini returned text but no grounding chunks, use the text as a result
-                  if (geminiText) {
-                    console.log('[web_search] Gemini text response (no grounding chunks)');
-                    const resp = {
-                      results: [{ title: 'Google Search Results', snippet: geminiText, link: '' }],
-                      query,
-                      summary: geminiText
-                    };
-                    if (isFinancial || isStats) {
-                      resp.answer = geminiText;
-                      resp.instruction = 'IMPORTANT: The "answer" field contains real-time data. Report these numbers directly.';
                     }
                     return resp;
                   }
@@ -1175,6 +1279,23 @@ export default async function handler(req, res) {
               } catch (e) {
                 console.log('[web_search] Gemini Grounding error:', e.message);
               }
+            }
+
+            // If we have stock data but Gemini failed, still return stock data
+            if (stockData) {
+              let stockSummary = '【リアルタイム株価データ（Yahoo Finance）】\n';
+              for (const s of stockData) {
+                const sign = parseFloat(s.change) >= 0 ? '+' : '';
+                const currSymbol = s.currency === 'JPY' ? '¥' : (s.currency === 'USD' ? '$' : s.currency + ' ');
+                stockSummary += `${s.name} (${s.ticker}): ${currSymbol}${s.price?.toLocaleString()} 前日比 ${sign}${s.change} (${sign}${s.changePercent}%)\n`;
+              }
+              return {
+                results: [{ title: 'Yahoo Finance Stock Data', snippet: stockSummary, link: 'https://finance.yahoo.com' }],
+                query,
+                stockPrices: stockData,
+                answer: stockSummary,
+                instruction: 'CRITICAL: Report these exact stock prices from Yahoo Finance to the user. Do NOT add disclaimers.'
+              };
             }
 
             // Fallback: Google News RSS (reliable, no API key)
