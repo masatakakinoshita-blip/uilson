@@ -857,9 +857,16 @@ export default async function handler(req, res) {
           }
 
           case 'google_drive_search': {
-            const q = encodeURIComponent("name contains '"+input.query+"' and trashed=false");
-            const r = await fetch('https://www.googleapis.com/drive/v3/files?q='+q+'&pageSize=20&orderBy=modifiedTime%20desc&fields=files%28id%2Cname%2CmimeType%2CmodifiedTime%2Cowners%2CwebViewLink%29', {headers: gh});
-            if(!r.ok){const e=await r.text();return {error:e};}
+            // Try fullText search first (searches inside documents), fall back to name-only
+            const escapedQ = input.query.replace(/'/g, "\\'");
+            const fullQ = encodeURIComponent("fullText contains '" + escapedQ + "' and trashed=false");
+            let r = await fetch('https://www.googleapis.com/drive/v3/files?q=' + fullQ + '&pageSize=20&orderBy=modifiedTime%20desc&fields=files%28id%2Cname%2CmimeType%2CmodifiedTime%2Cowners%2CwebViewLink%29', {headers: gh});
+            if (!r.ok) {
+              // Fallback to name-only search
+              const nameQ = encodeURIComponent("name contains '" + escapedQ + "' and trashed=false");
+              r = await fetch('https://www.googleapis.com/drive/v3/files?q=' + nameQ + '&pageSize=20&orderBy=modifiedTime%20desc&fields=files%28id%2Cname%2CmimeType%2CmodifiedTime%2Cowners%2CwebViewLink%29', {headers: gh});
+              if (!r.ok) { const e = await r.text(); return { error: e }; }
+            }
             const d = await r.json();
             return {files:(d.files||[]).map(f=>({id:f.id,name:f.name,type:f.mimeType,modified:f.modifiedTime,link:f.webViewLink||''}))};
           }
@@ -1066,11 +1073,15 @@ export default async function handler(req, res) {
                   tools: [{ google_search: {} }],
                   generationConfig: { temperature: 0.1, maxOutputTokens: 2048 }
                 };
+                const abortCtrl = new AbortController();
+                const timeout = setTimeout(() => abortCtrl.abort(), 15000);
                 const geminiR = await fetch(geminiUrl, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(geminiBody)
+                  body: JSON.stringify(geminiBody),
+                  signal: abortCtrl.signal
                 });
+                clearTimeout(timeout);
                 const geminiD = await geminiR.json();
 
                 if (geminiD.candidates && geminiD.candidates[0]) {
