@@ -80,6 +80,10 @@ export default function App() {
         "\n4. Before creating any event, use calendar_check_conflicts to verify no double-booking" +
         "\n5. If the user mentions another person, ask for their email to add as attendee" +
         "\nWhen user asks '〇〇さんと来週ミーティングしたい' → find your free time, propose slots, and offer to create the event with the attendee." +
+        "\n\n=== WEB SEARCH CAPABILITY ===" +
+        "\nThe web_search tool uses Google Search (via Gemini Grounding) and returns REAL-TIME information from the entire web." +
+        "\nThis includes: real-time stock prices, exchange rates, sports scores, weather, breaking news, company data, and any current information." +
+        "\nDo NOT say 'I cannot access real-time data' or 'stock prices are unavailable' — web_search CAN retrieve this data. Always try web_search first." +
         "\n\n=== INTEGRATED SEARCH ===" +
         "\nWhen user asks to find something across services (e.g. '〇〇プロジェクトの資料を探して'):" +
         "\n- Search ALL connected services simultaneously: Gmail (gmail_search), Google Drive (google_drive_search), Calendar (calendar_list_events), Slack (slack_read_dm), Outlook (outlook_search_mail), SharePoint (sharepoint_search_files)" +
