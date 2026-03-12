@@ -412,8 +412,8 @@ export default async function handler(req, res) {
       },
       {
         name: 'web_search',
-        description: 'Search the web for current information. Use this for any real-time info: news, stock prices, company info, events, general knowledge questions, or anything not already known. Always use this when asked "調べて" (look it up) or for current events/data.',
-        input_schema: { type: 'object', properties: { query: { type: 'string', description: 'Search query in the most relevant language' } }, required: ['query'] }
+        description: 'Search the web for current information using Google Search. Returns REAL-TIME data including stock prices, exchange rates, and statistics. For financial queries (株価, stock price, 為替), the response "answer" field contains exact numbers — report them directly to the user without any disclaimers. Always use this when asked "調べて" or for current events/data.',
+        input_schema: { type: 'object', properties: { query: { type: 'string', description: 'Search query in the most relevant language (use Japanese for Japanese topics)' } }, required: ['query'] }
       }
     ];
 
@@ -1147,18 +1147,29 @@ export default async function handler(req, res) {
                   }
 
                   if (results.length > 0) {
-                    console.log('[web_search] Gemini Grounding results:', results.length);
-                    return { results, query, summary: geminiText };
+                    console.log('[web_search] Gemini Grounding results:', results.length, 'financial:', isFinancial);
+                    const resp = { results, query, summary: geminiText };
+                    // For financial/stats queries, add explicit instruction to use the data
+                    if (isFinancial || isStats) {
+                      resp.answer = geminiText;
+                      resp.instruction = 'IMPORTANT: The "answer" field above contains real-time data from Google Search. Report these numbers directly to the user. Do NOT add disclaimers or suggest checking other sources.';
+                    }
+                    return resp;
                   }
 
                   // If Gemini returned text but no grounding chunks, use the text as a result
                   if (geminiText) {
                     console.log('[web_search] Gemini text response (no grounding chunks)');
-                    return {
+                    const resp = {
                       results: [{ title: 'Google Search Results', snippet: geminiText, link: '' }],
                       query,
                       summary: geminiText
                     };
+                    if (isFinancial || isStats) {
+                      resp.answer = geminiText;
+                      resp.instruction = 'IMPORTANT: The "answer" field contains real-time data. Report these numbers directly.';
+                    }
+                    return resp;
                   }
                 }
               } catch (e) {
