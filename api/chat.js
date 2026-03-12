@@ -1078,79 +1078,64 @@ export default async function handler(req, res) {
               } catch (e) { /* fall through to DuckDuckGo */ }
             }
 
-            // DuckDuckGo HTML scraping (primary fallback - returns real search results)
+            // SearXNG meta-search (primary fallback - JSON API, no key needed)
+            const searxInstances = [
+              'https://search.bus-hit.me',
+              'https://searx.be',
+              'https://search.sapti.me',
+              'https://searx.tiekoetter.com'
+            ];
+            for (const instance of searxInstances) {
+              try {
+                const sUrl = instance + '/search?q=' + encodeURIComponent(query) + '&format=json&language=ja&time_range=&safesearch=0&categories=general';
+                const sR = await fetch(sUrl, {
+                  headers: { 'Accept': 'application/json', 'User-Agent': 'UILSON/1.0' },
+                  signal: AbortSignal.timeout(5000)
+                });
+                if (!sR.ok) continue;
+                const sD = await sR.json();
+                if (sD.results && sD.results.length > 0) {
+                  const searxResults = sD.results.slice(0, 8).map(r => ({
+                    title: r.title || '',
+                    snippet: r.content || r.title || '',
+                    link: r.url || ''
+                  })).filter(r => r.title && r.link);
+                  if (searxResults.length > 0) {
+                    console.log('[web_search] SearXNG success from', instance, 'results:', searxResults.length);
+                    return { results: searxResults, query };
+                  }
+                }
+              } catch (e) {
+                console.log('[web_search] SearXNG failed:', instance, e.message);
+              }
+            }
+
+            // DuckDuckGo lite (secondary fallback)
             try {
-              const ddgHtmlR = await fetch('https://html.duckduckgo.com/html/', {
+              const liteR = await fetch('https://lite.duckduckgo.com/lite/', {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/x-www-form-urlencoded',
-                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                 },
-                body: 'q=' + encodeURIComponent(query) + '&kl=jp-jp'
+                body: 'q=' + encodeURIComponent(query),
+                signal: AbortSignal.timeout(5000)
               });
-              const ddgHtml = await ddgHtmlR.text();
-              const htmlResults = [];
-
-              // Parse DuckDuckGo HTML results using web-result class (actual DDG structure)
-              const resultRegex = /class="result[^"]*web-result[^"]*"[\s\S]*?(?=class="result[^"]*web-result|class="nav-link"|$)/g;
-              let match;
-              while ((match = resultRegex.exec(ddgHtml)) !== null && htmlResults.length < 8) {
-                const block = match[0];
-                // Extract title from result__a
-                const titleMatch = block.match(/class="result__a"[^>]*>([\s\S]*?)<\/a>/);
-                let title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : '';
-                // Extract URL from result__a href
-                const hrefMatch = block.match(/class="result__a"[^>]*href="([^"]*)"/);
-                let link = '';
-                if (hrefMatch) {
-                  link = hrefMatch[1];
-                  if (link.includes('uddg=')) {
-                    const decoded = decodeURIComponent(link.split('uddg=')[1]?.split('&')[0] || '');
-                    if (decoded) link = decoded;
-                  }
-                  if (!link.startsWith('http')) link = 'https://' + link.replace(/^\/+/, '');
-                }
-                // Extract snippet from result__snippet
-                const snippetMatch = block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/(?:a|td|div|span)/);
-                let snippet = snippetMatch ? snippetMatch[1].replace(/<[^>]+>/g, '').trim() : '';
-
-                if (title && (snippet || link)) {
-                  htmlResults.push({ title, snippet: snippet || title, link });
-                }
+              const liteHtml = await liteR.text();
+              const liteResults = [];
+              // DDG lite uses simple table rows with class="result-link" and "result-snippet"
+              const linkMatches = [...liteHtml.matchAll(/<a[^>]*class="result-link"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g)];
+              const snippetMatches = [...liteHtml.matchAll(/class="result-snippet"[^>]*>([\s\S]*?)<\/td>/g)];
+              for (let i = 0; i < Math.min(linkMatches.length, 8); i++) {
+                const link = linkMatches[i][1] || '';
+                const title = (linkMatches[i][2] || '').replace(/<[^>]+>/g, '').trim();
+                const snippet = snippetMatches[i] ? snippetMatches[i][1].replace(/<[^>]+>/g, '').trim() : title;
+                if (title && link) liteResults.push({ title, snippet, link });
               }
-
-              // Fallback: try splitting by result__body if web-result didn't match
-              if (htmlResults.length === 0 && ddgHtml.includes('result__body')) {
-                const bodyBlocks = ddgHtml.split('result__body');
-                for (let i = 1; i < bodyBlocks.length && htmlResults.length < 8; i++) {
-                  const block = bodyBlocks[i];
-                  const titleMatch = block.match(/class="result__a"[^>]*>([\s\S]*?)<\/a>/);
-                  let title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : '';
-                  const hrefMatch = block.match(/class="result__a"[^>]*href="([^"]*)"/);
-                  let link = '';
-                  if (hrefMatch) {
-                    link = hrefMatch[1];
-                    if (link.includes('uddg=')) {
-                      const decoded = decodeURIComponent(link.split('uddg=')[1]?.split('&')[0] || '');
-                      if (decoded) link = decoded;
-                    }
-                    if (!link.startsWith('http')) link = 'https://' + link.replace(/^\/+/, '');
-                  }
-                  const snippetMatch = block.match(/class="result__snippet"[^>]*>([\s\S]*?)<\/(?:a|td|div|span)/);
-                  let snippet = snippetMatch ? snippetMatch[1].replace(/<[^>]+>/g, '').trim() : '';
-                  if (title && (snippet || link)) {
-                    htmlResults.push({ title, snippet: snippet || title, link });
-                  }
-                }
-              }
-
-              console.log('[web_search] DDG HTML length:', ddgHtml.length, 'results found:', htmlResults.length, 'has web-result:', ddgHtml.includes('web-result'), 'has result__body:', ddgHtml.includes('result__body'), 'first500:', ddgHtml.substring(0, 500));
-
-              if (htmlResults.length > 0) {
-                return { results: htmlResults, query };
-              }
+              console.log('[web_search] DDG lite length:', liteHtml.length, 'results:', liteResults.length);
+              if (liteResults.length > 0) return { results: liteResults, query };
             } catch (e) {
-              console.log('[web_search] DDG HTML error:', e.message);
+              console.log('[web_search] DDG lite error:', e.message);
             }
 
             // DuckDuckGo Instant Answer API (last resort)
