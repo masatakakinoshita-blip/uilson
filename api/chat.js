@@ -489,12 +489,12 @@ export default async function handler(req, res) {
             const toLine = input.to;
             const subj = input.subject;
             const bodyText = input.body;
-            const mimeSubj = /[^\x20-\x7E]/.test(subj) ? '=?UTF-8?B?' + btoa(unescape(encodeURIComponent(subj))) + '?=' : subj;
-            let rawEmail = 'To: ' + toLine + '\nSubject: ' + mimeSubj + '\nMIME-Version: 1.0\nContent-Type: text/plain; charset=utf-8\nContent-Transfer-Encoding: base64\n';
+            const encSubj = /[^\x20-\x7E]/.test(subj) ? '=?UTF-8?B?' + Buffer.from(subj, 'utf8').toString('base64') + '?=' : subj;
+            let rawEmail = 'To: ' + toLine + '\nSubject: ' + encSubj + '\nMIME-Version: 1.0\nContent-Type: text/plain; charset=utf-8\nContent-Transfer-Encoding: base64\n';
             if (input.cc) rawEmail += 'Cc: ' + input.cc + '\n';
             if (input.bcc) rawEmail += 'Bcc: ' + input.bcc + '\n';
-            rawEmail += '\n' + btoa(unescape(encodeURIComponent(bodyText)));
-            const encoded = btoa(unescape(encodeURIComponent(rawEmail))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+            rawEmail += '\n' + Buffer.from(bodyText, 'utf8').toString('base64');
+            const encoded = Buffer.from(rawEmail, 'utf8').toString('base64url');
             const r = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/drafts', {
               method: 'POST', headers: gh,
               body: JSON.stringify({ message: { raw: encoded } })
@@ -516,12 +516,12 @@ export default async function handler(req, res) {
             const toLine = input.to;
             const subj = input.subject;
             const bodyText = input.body;
-            const mimeSubj2 = /[^\x20-\x7E]/.test(subj) ? '=?UTF-8?B?' + btoa(unescape(encodeURIComponent(subj))) + '?=' : subj;
-            let rawEmail = 'To: ' + toLine + '\nSubject: ' + mimeSubj2 + '\nMIME-Version: 1.0\nContent-Type: text/plain; charset=utf-8\nContent-Transfer-Encoding: base64\n';
+            const encSubj2 = /[^\x20-\x7E]/.test(subj) ? '=?UTF-8?B?' + Buffer.from(subj, 'utf8').toString('base64') + '?=' : subj;
+            let rawEmail = 'To: ' + toLine + '\nSubject: ' + encSubj2 + '\nMIME-Version: 1.0\nContent-Type: text/plain; charset=utf-8\nContent-Transfer-Encoding: base64\n';
             if (input.cc) rawEmail += 'Cc: ' + input.cc + '\n';
             if (input.bcc) rawEmail += 'Bcc: ' + input.bcc + '\n';
-            rawEmail += '\n' + btoa(unescape(encodeURIComponent(bodyText)));
-            const encoded = btoa(unescape(encodeURIComponent(rawEmail))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+            rawEmail += '\n' + Buffer.from(bodyText, 'utf8').toString('base64');
+            const encoded = Buffer.from(rawEmail, 'utf8').toString('base64url');
             const r = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
               method: 'POST', headers: gh,
               body: JSON.stringify({ raw: encoded })
