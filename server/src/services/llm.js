@@ -1,5 +1,5 @@
 // LLMService - Abstraction layer for transparent LLM switching
-// Supports: Anthropic Claude (direct), Vertex AI Claude, Vertex AI Gemini
+// Supports: Anthropic Claude (direct), Vertex AI Claude, Vertex AI Gemini, Google AI Gemini
 // Design: Strategy pattern - swap provider via env var without code changes
 
 import crypto from 'crypto';
@@ -8,6 +8,7 @@ const PROVIDERS = {
   ANTHROPIC: 'anthropic',
   VERTEX_CLAUDE: 'vertex-claude',
   VERTEX_GEMINI: 'vertex-gemini',
+  GOOGLE_AI: 'google-ai',
 };
 
 // ── Token cache for Vertex AI auth ──
@@ -94,7 +95,7 @@ async function callAnthropic(messages, systemPrompt, tools, options = {}) {
 async function callVertexClaude(messages, systemPrompt, tools, options = {}) {
   const token = await getVertexToken();
   const project = process.env.VERTEX_PROJECT_ID || 'uilson-489209';
-  const region = process.env.VERTEX_REGION || 'us-east1';
+  const region = process.env.VERTEX_REGION || 'global';
   const model = options.model || process.env.CLAUDE_MODEL || 'claude-sonnet-4-6';
 
   const body = {
@@ -105,7 +106,13 @@ async function callVertexClaude(messages, systemPrompt, tools, options = {}) {
   };
   if (tools?.length) body.tools = tools;
 
-  const url = `https://${region}-aiplatform.googleapis.com/v1/projects/${project}/locations/${region}/publishers/anthropic/models/${model}:rawPredict`;
+  // Global endpoint uses aiplatform.googleapis.com (no region prefix)
+  // Regional endpoints use {region}-aiplatform.googleapis.com
+  const host = region === 'global'
+    ? 'aiplatform.googleapis.com'
+    : `${region}-aiplatform.googleapis.com`;
+  const url = `https://${host}/v1/projects/${project}/locations/${region}/publishers/anthropic/models/${model}:rawPredict`;
+  console.log(`[LLMService] Vertex Claude URL: ${url}`);
   const resp = await fetch(url, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -182,6 +189,75 @@ async function callVertexGemini(messages, systemPrompt, tools, options = {}) {
   return data;
 }
 
+async function callGoogleAI(messages, systemPrompt, tools, options = {}) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY not configured');
+
+  const model = options.model || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+
+  // Convert Claude-format messages → Gemini format
+  const contents = messages.map(m => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: typeof m.content === 'string' ? m.content : m.content.map(c => c.text || '').join('') }],
+  }));
+
+  const body = {
+    contents,
+    systemInstruction: systemPrompt ? { parts: [{ text: systemPrompt }] } : undefined,
+    generationConfig: {
+      maxOutputTokens: options.maxTokens || 8192,
+      temperature: options.temperature || 0.7,
+    },
+  };
+
+  // Convert tools to Gemini format
+  if (tools?.length) {
+    body.tools = [{
+      functionDeclarations: tools.map(t => ({
+        name: t.name,
+        description: t.description,
+        parameters: t.input_schema,
+      }))
+    }];
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  console.log(`[LLMService] Google AI model: ${model}`);
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await resp.json();
+
+  // Normalize Gemini response → Claude response format (unified interface)
+  if (data.candidates?.[0]?.content?.parts) {
+    const parts = data.candidates[0].content.parts;
+    const content = [];
+    for (const part of parts) {
+      if (part.text) content.push({ type: 'text', text: part.text });
+      if (part.functionCall) {
+        content.push({
+          type: 'tool_use',
+          id: `toolu_${crypto.randomUUID().slice(0, 8)}`,
+          name: part.functionCall.name,
+          input: part.functionCall.args || {},
+        });
+      }
+    }
+    return {
+      content,
+      stop_reason: data.candidates[0].finishReason === 'STOP' ? 'end_turn' : 'tool_use',
+      model,
+      usage: {
+        input_tokens: data.usageMetadata?.promptTokenCount || 0,
+        output_tokens: data.usageMetadata?.candidatesTokenCount || 0,
+      },
+    };
+  }
+  return data;
+}
+
 // ── Public API ──
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -205,10 +281,18 @@ export class LLMService {
           case PROVIDERS.VERTEX_GEMINI:
             result = await callVertexGemini(messages, systemPrompt, tools, options);
             break;
+          case PROVIDERS.GOOGLE_AI:
+            result = await callGoogleAI(messages, systemPrompt, tools, options);
+            break;
           case PROVIDERS.ANTHROPIC:
           default:
             result = await callAnthropic(messages, systemPrompt, tools, options);
             break;
+        }
+
+        // Log errors for debugging
+        if (result?.error) {
+          console.log(`[LLMService] API error:`, JSON.stringify(result.error).slice(0, 500));
         }
 
         // Retry on rate limit
