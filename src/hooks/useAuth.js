@@ -23,7 +23,7 @@ export function googleAuthUrl(loginHint, forceConsent = false, promptOverride = 
     redirect_uri: GOOGLE_REDIRECT,
     response_type: "token",
     scope: SCOPES,
-    prompt: promptOverride || (forceConsent ? "consent" : "select_account"),
+    prompt: promptOverride || (forceConsent ? "consent" : (loginHint ? "none" : "select_account")),
     state: "google",
   };
   if (loginHint) params.login_hint = loginHint;
@@ -142,6 +142,17 @@ export default function useAuth() {
           }
           window.history.replaceState(null, "", window.location.pathname);
         }
+      }
+    }
+    // Handle prompt=none failure: Google returns #error=interaction_required
+    // Fall back to select_account so the user can re-authenticate
+    if (hash.includes("error=")) {
+      const hashParams = new URLSearchParams(hash.substring(1));
+      const error = hashParams.get("error");
+      if (error === "interaction_required" || error === "login_required") {
+        window.history.replaceState(null, "", window.location.pathname);
+        const savedEmail = localStorage.getItem("g_email");
+        window.location.href = googleAuthUrl(savedEmail || undefined, false, "select_account");
       }
     }
   }, []);

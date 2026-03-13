@@ -106,7 +106,8 @@ export default function SettingsModal({ show, onClose, auth, emailCounts, eventC
               { label: "Calendar", count: eventCounts?.google || 0 },
             ]}
             onConnect={() => {
-              window.location.href = googleAuthUrl();
+              const savedEmail = localStorage.getItem("g_email");
+              window.location.href = googleAuthUrl(savedEmail || undefined);
             }}
             onDisconnect={() => handleDisconnect("google")}
           />
