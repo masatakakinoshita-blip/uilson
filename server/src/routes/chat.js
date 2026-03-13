@@ -14,7 +14,17 @@ router.post('/', async (req, res) => {
   const startTime = Date.now();
 
   try {
-    const { messages, systemPrompt, tools: clientTools = [], userId, sessionId, token, action } = req.body;
+    const {
+      messages,
+      system: systemPrompt,      // frontend sends "system"
+      systemPrompt: altSystem,    // also accept "systemPrompt"
+      tools: clientTools = [],
+      userId, sessionId,
+      googleToken, msToken, slackToken,  // OAuth tokens from frontend
+      action,
+    } = req.body;
+
+    const sysPrompt = systemPrompt || altSystem || '';
 
     // Handle config requests (backward compat)
     if (action === 'get-config') {
@@ -29,7 +39,7 @@ router.post('/', async (req, res) => {
     const sid = sessionId || `session_${Date.now()}`;
 
     // ── Build enhanced system prompt with memory context ──
-    let enhancedSystem = systemPrompt || '';
+    let enhancedSystem = sysPrompt;
 
     // Add memory context (preferences + recalled memories)
     try {
