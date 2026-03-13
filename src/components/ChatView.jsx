@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo } from "react";
+import { useRef, useEffect, useState } from "react";
 
 function renderMarkdown(text) {
   if (!text) return text;
@@ -78,14 +78,21 @@ const V = {
   teal: "#3D6098",
   lime: "#A8C868",
   green: "#5A9E6F",
-  red: "#C87066"
+  red: "#C87066",
+  orange: "#D4A050"
 };
 
-const quickActions = [
-  { icon: "☕️", label: "今日のまとめ", action: "おはよう！今日のブリーフィングをお願いします。" },
-  { icon: "✉️", label: "メールチェック", action: "未読メールをわかりやすく教えてください。" },
-  { icon: "📅", label: "今日の予定", action: "今日のスケジュールを教えてください。" },
-  { icon: "💬", label: "Slackの様子", action: "最近のSlackメッセージを見せてください。" }
+/* ── Suggestion Cards: quick actions + document creation ── */
+const suggestionCards = [
+  // Quick actions (top row)
+  { id: "briefing", icon: "☀️", label: "今日のまとめ", sub: "予定・メール・天気を一括チェック", action: "おはよう！今日のブリーフィングをお願いします。", type: "action" },
+  { id: "email",    icon: "✉️", label: "メールチェック", sub: "未読メールをわかりやすく整理", action: "未読メールをわかりやすく教えてください。", type: "action" },
+  { id: "calendar", icon: "📅", label: "今日の予定", sub: "スケジュールを確認", action: "今日のスケジュールを教えてください。", type: "action" },
+  { id: "slack",    icon: "💬", label: "Slackの様子", sub: "最近のメッセージをチェック", action: "最近のSlackメッセージを見せてください。", type: "action" },
+  // Document creation (bottom row)
+  { id: "pptx", icon: "📊", label: "プレゼン資料", sub: "PPTX生成エンジン", type: "create", viewTarget: "create-pptx", badgeColor: V.red },
+  { id: "xlsx", icon: "📈", label: "スプレッドシート", sub: "Excel生成エンジン", type: "create", viewTarget: "create-xlsx", badgeColor: V.green },
+  { id: "docx", icon: "📄", label: "フォーマル文書", sub: "Word生成エンジン", type: "create", viewTarget: "create-docx", badgeColor: V.accent },
 ];
 
 export default function ChatView({
@@ -104,17 +111,16 @@ export default function ChatView({
   driveFiles,
   lastExecLogId,
   feedbackGiven,
-  onFeedback
+  onFeedback,
+  setView
 }) {
   const bottomRef = useRef(null);
+  const inputRef = useRef(null);
+  const [inputFocused, setInputFocused] = useState(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
-
-  const handleQuickAction = (action) => {
-    send(action);
-  };
 
   const handleSend = () => {
     if (input.trim()) {
@@ -129,6 +135,16 @@ export default function ChatView({
     }
   };
 
+  const handleCardClick = (card) => {
+    if (card.type === "create" && card.viewTarget && setView) {
+      setView(card.viewTarget);
+    } else if (card.action) {
+      send(card.action);
+    }
+  };
+
+  const hasMessages = messages.length > 0;
+
   return (
     <div
       style={{
@@ -139,158 +155,18 @@ export default function ChatView({
         overflow: "hidden"
       }}
     >
-      {/* Top Bar */}
-      <div
-        style={{
-          padding: "20px 24px",
-          backgroundColor: V.card,
-          borderBottom: `1px solid ${V.border}`,
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start"
-        }}
-      >
-        <div>
-          <div
-            style={{
-              fontSize: "18px",
-              fontWeight: "700",
-              color: V.t1,
-              marginBottom: "4px"
-            }}
-          >
-            💬 なんでも聞いてね
-          </div>
-          <div
-            style={{
-              fontSize: "14px",
-              color: V.t3,
-              lineHeight: "1.4"
-            }}
-          >
-            メール・予定・Slackなど、まとめてお手伝いします
-          </div>
-        </div>
-
-        {/* Connection Status Badges */}
-        <div
-          style={{
-            display: "flex",
-            gap: "8px",
-            flexWrap: "wrap",
-            justifyContent: "flex-end",
-            maxWidth: "300px"
-          }}
-        >
-          {token && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "4px",
-                padding: "4px 10px",
-                backgroundColor: `${V.green}14`,
-                color: V.green,
-                borderRadius: "4px",
-                fontSize: "12px",
-                fontWeight: "600",
-                whiteSpace: "nowrap"
-              }}
-            >
-              <span style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: V.green, display: "inline-block" }} />
-              Gmail
-            </div>
-          )}
-          {token && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "4px",
-                padding: "4px 10px",
-                backgroundColor: `${V.accent}14`,
-                color: V.accent,
-                borderRadius: "4px",
-                fontSize: "12px",
-                fontWeight: "600",
-                whiteSpace: "nowrap"
-              }}
-            >
-              <span style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: V.accent, display: "inline-block" }} />
-              Calendar
-            </div>
-          )}
-          {slackConnected && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "4px",
-                padding: "4px 10px",
-                backgroundColor: "#E01E5A14",
-                color: "#E01E5A",
-                borderRadius: "4px",
-                fontSize: "12px",
-                fontWeight: "600",
-                whiteSpace: "nowrap"
-              }}
-            >
-              <span style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#E01E5A", display: "inline-block" }} />
-              Slack
-            </div>
-          )}
-          {msToken && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "4px",
-                padding: "4px 10px",
-                backgroundColor: "#0078D414",
-                color: "#0078D4",
-                borderRadius: "4px",
-                fontSize: "12px",
-                fontWeight: "600",
-                whiteSpace: "nowrap"
-              }}
-            >
-              <span style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#0078D4", display: "inline-block" }} />
-              Outlook Mail
-            </div>
-          )}
-          {msToken && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "4px",
-                padding: "4px 10px",
-                backgroundColor: "#9B59B614",
-                color: "#9B59B6",
-                borderRadius: "4px",
-                fontSize: "12px",
-                fontWeight: "600",
-                whiteSpace: "nowrap"
-              }}
-            >
-              <span style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#9B59B6", display: "inline-block" }} />
-              Outlook Cal
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Chat Area */}
+      {/* ── Chat Area ── */}
       <div
         style={{
           flex: 1,
           overflowY: "auto",
-          padding: "20px 24px",
+          padding: hasMessages ? "20px 24px" : "0",
           display: "flex",
           flexDirection: "column"
         }}
       >
-        {messages.length === 0 ? (
+        {!hasMessages ? (
+          /* ── Empty State: centered hero + suggestion cards ── */
           <div
             style={{
               flex: 1,
@@ -298,120 +174,141 @@ export default function ChatView({
               flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
-              textAlign: "center",
-              gap: "24px"
+              padding: "40px 24px 0"
             }}
           >
-            {/* Logo */}
+            {/* Hero Logo */}
             <div
               style={{
-                width: "60px",
-                height: "60px",
-                borderRadius: "12px",
+                width: "56px",
+                height: "56px",
+                borderRadius: "14px",
                 background: `linear-gradient(135deg, ${V.teal} 0%, ${V.accent} 100%)`,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                position: "relative"
+                position: "relative",
+                marginBottom: "16px"
               }}
             >
-              <span style={{ fontSize: "32px", fontWeight: "700", color: V.white }}>U</span>
+              <span style={{ fontSize: "28px", fontWeight: "700", color: V.white }}>U</span>
               <div
                 style={{
                   position: "absolute",
-                  bottom: "-4px",
+                  bottom: "-3px",
                   left: "50%",
                   transform: "translateX(-50%)",
-                  width: "24px",
+                  width: "22px",
                   height: "2px",
                   backgroundColor: V.lime
                 }}
               />
             </div>
 
-            {/* Title */}
-            <div>
-              <div
-                style={{
-                  fontSize: "24px",
-                  fontWeight: "700",
-                  color: V.t1,
-                  marginBottom: "8px"
-                }}
-              >
-                UILSON
-              </div>
-              <div
-                style={{
-                  fontSize: "16px",
-                  color: V.t3,
-                  marginBottom: "4px"
-                }}
-              >
-                あなたのAIアシスタント
-              </div>
-              <div
-                style={{
-                  fontSize: "14px",
-                  color: V.t4
-                }}
-              >
-                お気軽にどうぞ 😊
-              </div>
+            <div style={{ fontSize: "22px", fontWeight: "700", color: V.t1, marginBottom: "6px" }}>
+              UILSON
+            </div>
+            <div style={{ fontSize: "14px", color: V.t3, marginBottom: "32px" }}>
+              なんでもお手伝いします
             </div>
 
-            {/* Quick Action Buttons */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(2, 1fr)",
-                gap: "12px",
-                width: "100%",
-                maxWidth: "500px",
-                marginTop: "12px"
-              }}
-            >
-              {quickActions.map((qa, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleQuickAction(qa.action)}
-                  style={{
-                    padding: "12px 16px",
-                    backgroundColor: V.card,
-                    border: `1px solid ${V.border}`,
-                    borderRadius: "8px",
-                    cursor: "pointer",
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    gap: "8px",
-                    transition: "all 0.2s ease"
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = V.bg;
-                    e.currentTarget.style.borderColor = V.accent;
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = V.card;
-                    e.currentTarget.style.borderColor = V.border;
-                  }}
-                >
-                  <span style={{ fontSize: "20px" }}>{qa.icon}</span>
-                  <span
+            {/* ── Suggestion Cards Grid ── */}
+            <div style={{ width: "100%", maxWidth: "640px" }}>
+              {/* Quick Actions Row */}
+              <div style={{ fontSize: "11px", fontWeight: "600", color: V.t4, marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                すぐに使える
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(4, 1fr)",
+                  gap: "10px",
+                  marginBottom: "20px"
+                }}
+              >
+                {suggestionCards.filter(c => c.type === "action").map((card) => (
+                  <button
+                    key={card.id}
+                    onClick={() => handleCardClick(card)}
                     style={{
-                      fontSize: "12px",
-                      fontWeight: "600",
-                      color: V.t2,
-                      textAlign: "center"
+                      padding: "14px 10px",
+                      backgroundColor: V.card,
+                      border: `1px solid ${V.border}`,
+                      borderRadius: "10px",
+                      cursor: "pointer",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: "6px",
+                      transition: "all 0.2s ease"
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = V.bg;
+                      e.currentTarget.style.borderColor = V.accent;
+                      e.currentTarget.style.transform = "translateY(-2px)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = V.card;
+                      e.currentTarget.style.borderColor = V.border;
+                      e.currentTarget.style.transform = "translateY(0)";
                     }}
                   >
-                    {qa.label}
-                  </span>
-                </button>
-              ))}
+                    <span style={{ fontSize: "22px" }}>{card.icon}</span>
+                    <span style={{ fontSize: "12px", fontWeight: "600", color: V.t2, textAlign: "center" }}>{card.label}</span>
+                    <span style={{ fontSize: "10px", color: V.t4, textAlign: "center", lineHeight: "1.3" }}>{card.sub}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Create Documents Row */}
+              <div style={{ fontSize: "11px", fontWeight: "600", color: V.t4, marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                つくる
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(3, 1fr)",
+                  gap: "10px"
+                }}
+              >
+                {suggestionCards.filter(c => c.type === "create").map((card) => (
+                  <button
+                    key={card.id}
+                    onClick={() => handleCardClick(card)}
+                    style={{
+                      padding: "14px 10px",
+                      backgroundColor: V.card,
+                      border: `1px solid ${V.border}`,
+                      borderRadius: "10px",
+                      cursor: "pointer",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: "6px",
+                      transition: "all 0.2s ease",
+                      position: "relative"
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = card.badgeColor || V.accent;
+                      e.currentTarget.style.transform = "translateY(-2px)";
+                      e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.08)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = V.border;
+                      e.currentTarget.style.transform = "translateY(0)";
+                      e.currentTarget.style.boxShadow = "none";
+                    }}
+                  >
+                    <span style={{ fontSize: "22px" }}>{card.icon}</span>
+                    <span style={{ fontSize: "12px", fontWeight: "600", color: V.t2, textAlign: "center" }}>{card.label}</span>
+                    <span style={{ fontSize: "10px", color: V.t4, textAlign: "center", lineHeight: "1.3" }}>{card.sub}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         ) : (
+          /* ── Messages ── */
           <>
             {messages.map((msg, idx) => (
               <div
@@ -460,7 +357,7 @@ export default function ChatView({
                   >
                     {msg.role === "assistant" ? renderMarkdown(msg.content) : msg.content}
                   </div>
-                  {/* Feedback buttons — show on last assistant message if skill was executed */}
+                  {/* Feedback buttons */}
                   {msg.role === "assistant" && lastExecLogId && idx === messages.length - 1 && onFeedback && (
                     <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
                       {feedbackGiven?.[lastExecLogId] ? (
@@ -529,42 +426,123 @@ export default function ChatView({
         )}
       </div>
 
-      {/* Input Bar */}
+      {/* ── Inline suggestion chips (when chat is active) ── */}
+      {hasMessages && !loading && (
+        <div
+          style={{
+            padding: "0 24px 4px",
+            display: "flex",
+            gap: "8px",
+            flexWrap: "wrap"
+          }}
+        >
+          {suggestionCards.filter(c => c.type === "action").slice(0, 3).map((card) => (
+            <button
+              key={card.id}
+              onClick={() => handleCardClick(card)}
+              style={{
+                padding: "6px 12px",
+                backgroundColor: V.card,
+                border: `1px solid ${V.border}`,
+                borderRadius: "16px",
+                cursor: "pointer",
+                fontSize: "12px",
+                color: V.t2,
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                transition: "all 0.15s ease"
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = V.accent;
+                e.currentTarget.style.backgroundColor = `${V.accent}08`;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = V.border;
+                e.currentTarget.style.backgroundColor = V.card;
+              }}
+            >
+              <span style={{ fontSize: "13px" }}>{card.icon}</span>
+              <span>{card.label}</span>
+            </button>
+          ))}
+          {suggestionCards.filter(c => c.type === "create").map((card) => (
+            <button
+              key={card.id}
+              onClick={() => handleCardClick(card)}
+              style={{
+                padding: "6px 12px",
+                backgroundColor: V.card,
+                border: `1px solid ${V.border}`,
+                borderRadius: "16px",
+                cursor: "pointer",
+                fontSize: "12px",
+                color: V.t2,
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                transition: "all 0.15s ease"
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = card.badgeColor || V.accent;
+                e.currentTarget.style.backgroundColor = `${(card.badgeColor || V.accent)}08`;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = V.border;
+                e.currentTarget.style.backgroundColor = V.card;
+              }}
+            >
+              <span style={{ fontSize: "13px" }}>{card.icon}</span>
+              <span>{card.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ── Input Bar ── */}
       <div
         style={{
-          padding: "16px 24px 24px",
+          padding: "12px 24px 24px",
           backgroundColor: V.main,
-          borderTop: `1px solid ${V.border}`,
+          borderTop: hasMessages ? `1px solid ${V.border}` : "none",
           display: "flex",
           gap: "12px",
           alignItems: "flex-end"
         }}
       >
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="ここに聞きたいことを入力してください 😊"
+        <div
           style={{
             flex: 1,
-            padding: "12px 16px",
-            border: `1px solid ${V.border}`,
-            borderRadius: "8px",
+            display: "flex",
+            alignItems: "center",
+            border: `1px solid ${inputFocused ? V.accent : V.border}`,
+            borderRadius: "10px",
             backgroundColor: V.card,
-            fontSize: "14px",
-            color: V.t1,
-            fontFamily: "inherit",
-            outline: "none",
-            transition: "border-color 0.2s ease"
+            transition: "border-color 0.2s ease",
+            boxShadow: inputFocused ? `0 0 0 3px ${V.accent}15` : "none"
           }}
-          onFocus={(e) => {
-            e.currentTarget.style.borderColor = V.accent;
-          }}
-          onBlur={(e) => {
-            e.currentTarget.style.borderColor = V.border;
-          }}
-        />
+        >
+          <input
+            ref={inputRef}
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => setInputFocused(false)}
+            placeholder="なんでも聞いてください..."
+            style={{
+              flex: 1,
+              padding: "12px 16px",
+              border: "none",
+              backgroundColor: "transparent",
+              fontSize: "14px",
+              color: V.t1,
+              fontFamily: "inherit",
+              outline: "none"
+            }}
+          />
+        </div>
 
         <button
           onClick={handleSend}
@@ -574,12 +552,12 @@ export default function ChatView({
             backgroundColor: loading || !input.trim() ? V.t4 : V.accent,
             color: V.white,
             border: "none",
-            borderRadius: "8px",
+            borderRadius: "10px",
             cursor: loading || !input.trim() ? "not-allowed" : "pointer",
             fontSize: "14px",
             fontWeight: "600",
             whiteSpace: "nowrap",
-            transition: "background-color 0.2s ease",
+            transition: "all 0.2s ease",
             opacity: loading || !input.trim() ? 0.6 : 1
           }}
           onMouseEnter={(e) => {

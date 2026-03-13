@@ -5,7 +5,6 @@ import useDataFetch from "./hooks/useDataFetch";
 import useSkills from "./hooks/useSkills";
 import Sidebar from "./components/Sidebar";
 import ChatView from "./components/ChatView";
-import CreateMenu from "./components/CreateMenu";
 import CreatePptx from "./components/CreatePptx";
 import CreateXlsx from "./components/CreateXlsx";
 import CreateDocx from "./components/CreateDocx";
@@ -22,7 +21,7 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [view, setView] = useState("chat");
+  const [view, setView] = useState("home");
   const [sbCollapsed, setSbCollapsed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [lastExecLogId, setLastExecLogId] = useState(null);
@@ -194,8 +193,6 @@ export default function App() {
 
   const renderView = () => {
     switch (view) {
-      case "create-menu":
-        return <CreateMenu setView={setView} />;
       case "create-pptx":
         return <CreatePptx setView={setView} />;
       case "create-xlsx":
@@ -212,15 +209,14 @@ export default function App() {
             onFinalizeSkill={skillsHook.finalizeSkill}
             onToggleSkill={skillsHook.toggleSkill}
             onExecuteSkill={(skill) => {
-              // Switch to chat and auto-send the skill's goal as a message
-              setView("chat");
+              setView("home");
               const triggerMsg = skill.name + "を実行して";
               setTimeout(() => send(triggerMsg), 300);
             }}
           />
         );
       case "run":
-        return <RunView skills={skillsHook.skills} executionLogs={skillsHook.executionLogs} getSkillStats={skillsHook.getSkillStats} getOverallStats={skillsHook.getOverallStats} onExecuteSkill={(skill) => { setView("chat"); setTimeout(() => send(skill.name + "を実行して"), 300); }} />;
+        return <RunView skills={skillsHook.skills} executionLogs={skillsHook.executionLogs} getSkillStats={skillsHook.getSkillStats} getOverallStats={skillsHook.getOverallStats} onExecuteSkill={(skill) => { setView("home"); setTimeout(() => send(skill.name + "を実行して"), 300); }} />;
       case "review":
         return <ReviewView skills={skillsHook.skills} executionLogs={skillsHook.executionLogs} getSkillStats={skillsHook.getSkillStats} getOverallStats={skillsHook.getOverallStats} />;
       default:
@@ -245,6 +241,7 @@ export default function App() {
               skillsHook.recordFeedback(logId, fb);
               setFeedbackGiven((prev) => ({ ...prev, [logId]: fb }));
             }}
+            setView={setView}
           />
         );
     }

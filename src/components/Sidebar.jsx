@@ -19,8 +19,7 @@ const V = {
 };
 
 const navItems = [
-  { id: "create-menu", icon: "✏️", label: "つくる" },
-  { id: "chat", icon: "💬", label: "聞いてみる" },
+  { id: "home", icon: "🏠", label: "ホーム" },
   {
     id: "learn",
     icon: "📖",
@@ -56,7 +55,10 @@ export default function Sidebar({
     item.id === "learn" ? { ...item, badge: learnBadge } :
     item.id === "run" ? { ...item, badge: runBadge } : item
   );
-  const isActive = (itemId) => view === itemId;
+  const isActive = (itemId) => {
+    if (itemId === "home") return view === "home" || view === "chat" || view === "create-menu";
+    return view === itemId;
+  };
 
   return (
     <div
