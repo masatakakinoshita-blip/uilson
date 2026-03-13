@@ -13,7 +13,7 @@ const MS_SCOPES = "Mail.Read Calendars.ReadWrite User.Read Sites.Read.All Files.
 const IS_IFRAME = window.self !== window.top;
 
 // Firebase origin for cross-domain toke transfer (Slack workaround)
-const FIREBASE_ORIGIN = "https://uilson-489209.web.app";
+const FIREBASE_ORIGIN = "https://uilson-staging.web.app";
 
 // Implicit flow: returns access_token directly in URL hash (no client_secret needed)
 // promptOverride allows silent refresh with "none"
@@ -36,7 +36,7 @@ export function slackAuthUrl() {
     new URLSearchParams({
       client_id: SLACK_CLIENT_ID,
       user_scope: SLACK_USER_SCOPES,
-      redirect_uri: "https://uilson.vercel.app",
+      redirect_uri: window.location.origin,
       state: "slack",
     })
   );
