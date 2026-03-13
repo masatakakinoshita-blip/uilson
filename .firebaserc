@@ -1,5 +1,17 @@
 {
   "projects": {
     "default": "uilson-489209"
+  },
+  "targets": {
+    "uilson-489209": {
+      "hosting": {
+        "production": [
+          "uilson-489209"
+        ],
+        "staging": [
+          "uilson-staging"
+        ]
+      }
+    }
   }
 }
