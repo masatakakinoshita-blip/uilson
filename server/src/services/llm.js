@@ -17,9 +17,24 @@ let tokenExpiry = 0;
 async function getVertexToken() {
   if (cachedToken && Date.now() < tokenExpiry - 60000) return cachedToken;
 
+  // On Cloud Run: use metadata server (no SA key needed)
+  // Locally: fall back to GOOGLE_SERVICE_ACCOUNT_KEY
   const keyRaw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-  if (!keyRaw) throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY not set for Vertex AI');
 
+  if (!keyRaw) {
+    // Cloud Run metadata server - automatic SA credentials
+    const resp = await fetch(
+      'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token',
+      { headers: { 'Metadata-Flavor': 'Google' } }
+    );
+    if (!resp.ok) throw new Error('Failed to get token from metadata server: ' + resp.status);
+    const data = await resp.json();
+    cachedToken = data.access_token;
+    tokenExpiry = Date.now() + (data.expires_in || 3600) * 1000;
+    return cachedToken;
+  }
+
+  // Local dev: SA key-based JWT auth
   let key;
   try { key = JSON.parse(Buffer.from(keyRaw, 'base64').toString()); }
   catch { key = JSON.parse(keyRaw); }
