@@ -118,7 +118,7 @@ async function callVertexGemini(messages, systemPrompt, tools, options = {}) {
   const token = await getVertexToken();
   const project = process.env.VERTEX_PROJECT_ID || 'uilson-489209';
   const region = process.env.VERTEX_REGION || 'asia-northeast1';
-  const model = options.model || 'gemini-2.0-flash';
+  const model = options.model || 'gemini-2.0-flash-001';
 
   // Convert Claude-format messages → Gemini format
   const contents = messages.map(m => ({
