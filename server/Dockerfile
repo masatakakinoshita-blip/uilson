@@ -3,8 +3,8 @@ FROM node:20-slim
 WORKDIR /app
 
 # Install dependencies first (cache layer)
-COPY package.json package-lock.json* ./
-RUN npm ci --production
+COPY package.json ./
+RUN npm install --omit=dev
 
 # Copy source
 COPY src/ ./src/
