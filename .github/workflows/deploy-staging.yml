@@ -50,7 +50,15 @@ jobs:
 
       - name: Deploy Cloud Functions
         continue-on-error: true
-        run: firebase deploy --only functions --project uilson-489209 --force
+        run: |
+          echo "=== Functions directory contents ==="
+          ls -la functions/
+          echo "=== Functions package.json ==="
+          cat functions/package.json
+          echo "=== Functions .env line count ==="
+          wc -l functions/.env
+          echo "=== Deploying functions ==="
+          firebase deploy --only functions --project uilson-489209 --force --debug 2>&1 | tail -100
 
       - name: Deploy to Firebase Hosting (staging)
         uses: FirebaseExtended/action-hosting-deploy@v0
