@@ -114,6 +114,11 @@ async function firestoreCall(action, body = {}) {
     }
     const data = await resp.json();
     if (!data.ok && data.error) {
+      // Suppress noisy warnings for expected Firestore states
+      if (data.error.includes("NOT_FOUND")) {
+        // Firestore database/collection not yet created — normal for fresh setup
+        return null;
+      }
       console.warn("Firestore API error:", data.error);
       return null;
     }
