@@ -30,6 +30,12 @@ export async function initDB() {
 
   pool = new Pool(config);
 
+  // Set ef_search on every new connection from the pool
+  // This ensures all queries benefit from higher recall, not just the init connection
+  pool.on('connect', (client) => {
+    client.query('SET hnsw.ef_search = 200').catch(() => {});
+  });
+
   // Test connection & init schema
   const client = await pool.connect();
   try {
@@ -37,7 +43,11 @@ export async function initDB() {
 
     // Enable pgvector extension
     await client.query('CREATE EXTENSION IF NOT EXISTS vector');
-    console.log('[DB] pgvector extension enabled');
+
+    // pgvector HNSW tuning: increase ef_search for better recall on filtered queries
+    // Default is 40; 200 gives much better recall when WHERE clause filters results
+    await client.query('SET hnsw.ef_search = 200');
+    console.log('[DB] pgvector extension enabled (ef_search=200)');
 
     // Create tables
     await client.query(`
@@ -113,15 +123,38 @@ export async function initDB() {
       CREATE INDEX IF NOT EXISTS idx_sugglogs_user ON suggestion_logs(user_id, created_at DESC);
     `);
 
-    // Create HNSW index for vector search (if not exists)
+    // Create or upgrade HNSW index for vector search
+    // m=16: good balance of recall vs memory for <100K vectors
+    // ef_construction=200: higher quality graph (better recall, slower build — one-time cost)
+    const idxCheck = await client.query(`
+      SELECT indexdef FROM pg_indexes WHERE indexname = 'idx_memories_embedding'
+    `);
+    if (idxCheck.rows.length === 0) {
+      // Fresh install: create with optimal params
+      await client.query(`
+        SET maintenance_work_mem = '256MB';
+        CREATE INDEX idx_memories_embedding ON memories
+        USING hnsw (embedding vector_cosine_ops)
+        WITH (m = 16, ef_construction = 200);
+      `);
+      console.log('[DB] HNSW index created (m=16, ef_construction=200)');
+    } else if (!idxCheck.rows[0].indexdef.includes("ef_construction='200'")) {
+      // Upgrade: rebuild with better ef_construction (one-time migration)
+      console.log('[DB] Upgrading HNSW index (ef_construction -> 200)...');
+      await client.query(`
+        SET maintenance_work_mem = '256MB';
+        DROP INDEX idx_memories_embedding;
+        CREATE INDEX idx_memories_embedding ON memories
+        USING hnsw (embedding vector_cosine_ops)
+        WITH (m = 16, ef_construction = 200);
+      `);
+      await client.query('ANALYZE memories');
+      console.log('[DB] HNSW index upgraded successfully');
+    }
+
+    // Index on created_at for time-scoped memory queries
     await client.query(`
-      DO $$ BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_memories_embedding') THEN
-          CREATE INDEX idx_memories_embedding ON memories
-          USING hnsw (embedding vector_cosine_ops)
-          WITH (m = 16, ef_construction = 64);
-        END IF;
-      END $$;
+      CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(user_id, created_at DESC);
     `);
 
     console.log('[DB] Schema initialized');
