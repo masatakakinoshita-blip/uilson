@@ -9,7 +9,7 @@ const V = {
 };
 
 export default function LearnView({ skills, onCreateSkill, onUpdateSkill, onDeleteSkill, onFinalizeSkill, onToggleSkill, onExecuteSkill }) {
-  const [tab, setTab] = useState("teach");
+  const [tab, setTab] = useState("myskills");
   const [showWizard, setShowWizard] = useState(false);
   const [editingSkill, setEditingSkill] = useState(null);
   const activeSkills = (skills || []).filter((s) => s.status === "active");
@@ -18,11 +18,11 @@ export default function LearnView({ skills, onCreateSkill, onUpdateSkill, onDele
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ padding: "12px 24px", borderBottom: `1px solid ${V.border}`, background: V.sb }}>
-        <div style={{ fontSize: 20, fontWeight: 700, color: V.t1 }}>🧠 おぼえる</div>
-        <div style={{ fontSize: 14, color: V.t3, marginTop: 2 }}>AIに業務ワークフローを教えて、自律的に実行させます（{activeSkills.length}件アクティブ）</div>
+        <div style={{ fontSize: 20, fontWeight: 700, color: V.t1 }}>⚡ スキル</div>
+        <div style={{ fontSize: 14, color: V.t3, marginTop: 2 }}>業務ワークフローの作成・管理・実行（{activeSkills.length}件アクティブ）</div>
       </div>
       <div style={{ display: "flex", gap: 0, padding: "0 24px", borderBottom: `1px solid ${V.border}`, background: V.sb }}>
-        {[{ id: "teach", label: "新しく覚えさせる", count: learningSkills.length }, { id: "myskills", label: "スキル一覧", count: skills?.length || 0 }].map((t) => (
+        {[{ id: "myskills", label: "自分のスキル", count: skills?.length || 0 }, { id: "teach", label: "新規作成", count: learningSkills.length }, { id: "shared", label: "共有スキル", count: 0 }, { id: "official", label: "公式スキル", count: 0 }].map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "14px 16px", borderBottom: tab === t.id ? `3px solid ${V.accent}` : "none", background: tab === t.id ? V.white : "transparent", border: "none", cursor: "pointer", fontSize: 14, fontWeight: tab === t.id ? 600 : 500, color: tab === t.id ? V.accent : V.t3, display: "flex", alignItems: "center", gap: 6 }}>
             {t.label}
             {t.count > 0 && <span style={{ backgroundColor: tab === t.id ? V.accent : V.t4, color: V.white, padding: "1px 7px", borderRadius: 10, fontSize: 11, fontWeight: 700 }}>{t.count}</span>}
@@ -30,8 +30,10 @@ export default function LearnView({ skills, onCreateSkill, onUpdateSkill, onDele
         ))}
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
-        {tab === "teach" && <TeachTab skills={skills} learningSkills={learningSkills} showWizard={showWizard} setShowWizard={setShowWizard} editingSkill={editingSkill} setEditingSkill={setEditingSkill} onCreateSkill={onCreateSkill} onUpdateSkill={onUpdateSkill} onFinalizeSkill={onFinalizeSkill} onDeleteSkill={onDeleteSkill} />}
         {tab === "myskills" && <SkillsTab skills={skills || []} onToggleSkill={onToggleSkill} onDeleteSkill={onDeleteSkill} onExecuteSkill={onExecuteSkill} setEditingSkill={(s) => { setEditingSkill(s); setTab("teach"); setShowWizard(true); }} />}
+        {tab === "teach" && <TeachTab skills={skills} learningSkills={learningSkills} showWizard={showWizard} setShowWizard={setShowWizard} editingSkill={editingSkill} setEditingSkill={setEditingSkill} onCreateSkill={onCreateSkill} onUpdateSkill={onUpdateSkill} onFinalizeSkill={onFinalizeSkill} onDeleteSkill={onDeleteSkill} />}
+        {tab === "shared" && <PlaceholderSection icon="🤝" title="共有スキル" description="同僚や部署から共有されたスキルがここに表示されます。共有されたスキルは使うだけで、編集は元の作成者のみ可能です。" />}
+        {tab === "official" && <PlaceholderSection icon="🏢" title="公式スキル" description="会社やIT部門が全社配布したスキルがここに表示されます。無効化はできますが、削除はできません。" />}
       </div>
     </div>
   );
@@ -390,7 +392,7 @@ function SkillWizard({ skill: initialSkill, onClose, onCreateSkill, onUpdateSkil
             </div>
             {schedule && (
               <div style={{ marginTop: 8, padding: "8px 12px", backgroundColor: V.teal + "08", borderRadius: 6, fontSize: 12, color: V.teal }}>
-                🕐 このスキルは自動スケジュールで実行されます（Vercel Cron）
+                🕐 このスキルは自動スケジュールで実行されます
               </div>
             )}
           </div>
@@ -496,6 +498,16 @@ function SkillWizard({ skill: initialSkill, onClose, onCreateSkill, onUpdateSkil
   );
 }
 
+function PlaceholderSection({ icon, title, description }) {
+  return (
+    <div style={{ textAlign: "center", padding: "60px 0", color: V.t3 }}>
+      <div style={{ fontSize: 48, marginBottom: 16 }}>{icon}</div>
+      <div style={{ fontSize: 18, fontWeight: 600, color: V.t1, marginBottom: 8 }}>{title}</div>
+      <div style={{ fontSize: 14, color: V.t3, lineHeight: 1.6, maxWidth: 400, margin: "0 auto" }}>{description}</div>
+    </div>
+  );
+}
+
 function SkillsTab({ skills, onToggleSkill, onDeleteSkill, onExecuteSkill, setEditingSkill }) {
   const activeSkills = skills.filter((s) => s.status === "active");
   const pausedSkills = skills.filter((s) => s.status === "paused");
@@ -506,7 +518,7 @@ function SkillsTab({ skills, onToggleSkill, onDeleteSkill, onExecuteSkill, setEd
       <div style={{ textAlign: "center", padding: "60px 0", color: V.t3 }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}>📭</div>
         <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>スキルがまだありません</div>
-        <div style={{ fontSize: 13 }}>「新しく覚えさせる」タブからスキルを作成してください</div>
+        <div style={{ fontSize: 13 }}>「新規作成」タブからスキルを作成するか、ホームのチャットで自然言語で教えてください</div>
       </div>
     );
   }

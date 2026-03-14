@@ -11,8 +11,7 @@ import CreatePptx from "./components/CreatePptx";
 import CreateXlsx from "./components/CreateXlsx";
 import CreateDocx from "./components/CreateDocx";
 import LearnView from "./components/LearnView";
-import RunView from "./components/RunView";
-import ReviewView from "./components/ReviewView";
+import ReportView from "./components/ReportView";
 import SettingsModal from "./components/SettingsModal";
 
 export default function App() {
@@ -221,7 +220,7 @@ export default function App() {
         return <CreateXlsx setView={setView} />;
       case "create-docx":
         return <CreateDocx setView={setView} />;
-      case "learn":
+      case "skills":
         return (
           <LearnView
             skills={skillsHook.skills}
@@ -237,10 +236,8 @@ export default function App() {
             }}
           />
         );
-      case "run":
-        return <RunView skills={skillsHook.skills} executionLogs={skillsHook.executionLogs} getSkillStats={skillsHook.getSkillStats} getOverallStats={skillsHook.getOverallStats} onExecuteSkill={(skill) => { setView("home"); setTimeout(() => send(skill.name + "を実行して"), 300); }} />;
-      case "review":
-        return <ReviewView skills={skillsHook.skills} executionLogs={skillsHook.executionLogs} getSkillStats={skillsHook.getSkillStats} getOverallStats={skillsHook.getOverallStats} />;
+      case "report":
+        return <ReportView skills={skillsHook.skills} executionLogs={skillsHook.executionLogs} getSkillStats={skillsHook.getSkillStats} getOverallStats={skillsHook.getOverallStats} />;
       default:
         return (
           <ChatView

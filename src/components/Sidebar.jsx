@@ -21,13 +21,12 @@ const V = {
 const navItems = [
   { id: "home", icon: "🏠", label: "ホーム" },
   {
-    id: "learn",
-    icon: "📖",
-    label: "おぼえる",
+    id: "skills",
+    icon: "⚡",
+    label: "スキル",
     badge: { text: "学習中", pulse: true, bg: "rgba(91,125,184,0.08)", color: "#5B7DB8" }
   },
-  { id: "run", icon: "⚡", label: "おまかせ" },
-  { id: "review", icon: "📊", label: "ふりかえり" }
+  { id: "report", icon: "📊", label: "レポート" }
 ];
 
 export default function Sidebar({
@@ -41,19 +40,14 @@ export default function Sidebar({
   onSettingsClick,
   skillCounts
 }) {
-  const learnBadge = skillCounts?.active > 0
+  const skillsBadge = skillCounts?.active > 0
     ? { text: `${skillCounts.active}`, bg: "rgba(90,158,111,0.08)", color: "#5A9E6F" }
     : skillCounts?.learning > 0
     ? { text: "学習中", pulse: true, bg: "rgba(91,125,184,0.08)", color: "#5B7DB8" }
     : null;
 
-  const runBadge = skillCounts?.active > 0
-    ? { text: `${skillCounts.active}`, bg: "rgba(90,158,111,0.08)", color: "#5A9E6F" }
-    : null;
-
   const dynamicNavItems = navItems.map((item) =>
-    item.id === "learn" ? { ...item, badge: learnBadge } :
-    item.id === "run" ? { ...item, badge: runBadge } : item
+    item.id === "skills" ? { ...item, badge: skillsBadge } : item
   );
   const isActive = (itemId) => {
     if (itemId === "home") return view === "home" || view === "chat" || view === "create-menu";
