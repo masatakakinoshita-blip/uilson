@@ -12,6 +12,7 @@ import CreateXlsx from "./components/CreateXlsx";
 import CreateDocx from "./components/CreateDocx";
 import LearnView from "./components/LearnView";
 import ReportView from "./components/ReportView";
+import MeetingView from "./components/MeetingView";
 import SettingsModal from "./components/SettingsModal";
 
 export default function App() {
@@ -76,6 +77,8 @@ export default function App() {
       else disconnected.push("Slack");
       if (auth.msToken) connected.push("Microsoft (Outlook Mail, Outlook Calendar, Teams, SharePoint)");
       else disconnected.push("Microsoft (Outlook, Teams, SharePoint)");
+      if (auth.zoomToken) connected.push("Zoom (Meetings)");
+      else disconnected.push("Zoom (Meetings)");
       const connStatus = "\n\n## Connected Services: " + (connected.length ? connected.join(", ") : "NONE") +
         (disconnected.length ? "\n## NOT Connected: " + disconnected.join(", ") : "");
       const systemPrompt =
@@ -236,6 +239,8 @@ export default function App() {
             }}
           />
         );
+      case "meetings":
+        return <MeetingView auth={auth} data={data} />;
       case "report":
         return <ReportView skills={skillsHook.skills} executionLogs={skillsHook.executionLogs} getSkillStats={skillsHook.getSkillStats} getOverallStats={skillsHook.getOverallStats} />;
       default:
@@ -286,6 +291,7 @@ export default function App() {
         token={auth.token}
         slackConnected={auth.slackConnected}
         msToken={auth.msToken}
+        zoomToken={auth.zoomToken}
         onSettingsClick={() => setShowSettings(true)}
         skillCounts={{
           active: skillsHook.activeSkills.length,

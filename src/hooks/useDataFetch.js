@@ -328,6 +328,40 @@ export async function fetchSlack(tk) {
   }
 }
 
+export async function fetchZoomProfile(zoomToken) {
+  try {
+    const res = await fetch("/api/zoom-meetings?action=me", {
+      headers: { "x-zoom-token": zoomToken },
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchZoomMeetings(zoomToken) {
+  try {
+    const res = await fetch("/api/zoom-meetings?action=list&type=upcoming", {
+      headers: { "x-zoom-token": zoomToken },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.meetings || []).map((m) => ({
+      id: m.id,
+      topic: m.topic,
+      start_time: m.start_time,
+      duration: m.duration,
+      timezone: m.timezone,
+      join_url: m.join_url,
+      host_email: m.host_email,
+      type: m.type,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export function extractReply(data) {
   if (Array.isArray(data.content)) {
     return data.content.map((c) => c.text || "").join("");
@@ -562,6 +596,7 @@ export default function useDataFetch(auth) {
   const [teamsChats, setTeamsChats] = useState([]);
   const [teamsChannels, setTeamsChannels] = useState([]);
   const [driveFiles, setDriveFiles] = useState([]);
+  const [zoomMeetings, setZoomMeetings] = useState([]);
 
   // Effect: Google data fetch (Gmail, Calendar, Drive, Profile)
   useEffect(() => {
@@ -684,6 +719,24 @@ export default function useDataFetch(auth) {
         .catch(console.error);
     }
   }, [auth.msToken]);
+
+  // Effect: Zoom data fetch
+  useEffect(() => {
+    if (auth.zoomToken) {
+      fetchZoomProfile(auth.zoomToken)
+        .then((profile) => {
+          if (profile && profile.email) {
+            auth.setZoomEmail(profile.email);
+            localStorage.setItem("zoom_email", profile.email);
+          }
+        })
+        .catch(console.error);
+
+      fetchZoomMeetings(auth.zoomToken)
+        .then(setZoomMeetings)
+        .catch(console.error);
+    }
+  }, [auth.zoomToken]);
 
   // Get context by refreshing all data
   const getContext = async () => {
@@ -810,6 +863,8 @@ export default function useDataFetch(auth) {
     setTeamsChannels,
     driveFiles,
     setDriveFiles,
+    zoomMeetings,
+    setZoomMeetings,
     getContext,
     send,
     extractReply,

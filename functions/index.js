@@ -16,6 +16,8 @@ import skillsHandler from './api/skills.js';
 import slackMessagesHandler from './api/slack-messages.js';
 import slackOauthHandler from './api/slack-oauth.js';
 import slackUserinfoHandler from './api/slack-userinfo.js';
+import zoomOauthHandler from './api/zoom-oauth.js';
+import zoomMeetingsHandler from './api/zoom-meetings.js';
 
 // Shared Cloud Function options
 const opts = {
@@ -50,3 +52,5 @@ export const skills = onRequest(stdOpts, skillsHandler);
 export const slackmessages = onRequest(stdOpts, slackMessagesHandler);
 export const slackoauth = onRequest(stdOpts, slackOauthHandler);
 export const slackuserinfo = onRequest(stdOpts, slackUserinfoHandler);
+export const zoomoauth = onRequest(stdOpts, zoomOauthHandler);
+export const zoommeetings = onRequest(stdOpts, zoomMeetingsHandler);

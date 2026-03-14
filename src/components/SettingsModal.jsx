@@ -1,7 +1,8 @@
-import { googleAuthUrl, slackAuthUrl, msAuthUrl } from "../hooks/useAuth";
+import { googleAuthUrl, slackAuthUrl, msAuthUrl, zoomAuthUrl } from "../hooks/useAuth";
 
 // Check if OAuth Client IDs are configured (empty = not available)
 const MS_CLIENT_CONFIGURED = !!(import.meta.env.VITE_MS_CLIENT_ID || "2ea9b861-1582-4580-b6bd-18747f1132ce");
+const ZOOM_CLIENT_CONFIGURED = !!(import.meta.env.VITE_ZOOM_CLIENT_ID);
 
 const V = {
   bg: "#F0F2F7",
@@ -30,6 +31,8 @@ export default function SettingsModal({ show, onClose, auth, emailCounts, eventC
       auth.slackLogout();
     } else if (service === "outlook") {
       auth.msLogout();
+    } else if (service === "zoom") {
+      auth.zoomLogout();
     }
   };
 
@@ -143,6 +146,20 @@ export default function SettingsModal({ show, onClose, auth, emailCounts, eventC
             } : null}
             onDisconnect={() => handleDisconnect("outlook")}
             disabledMessage={!MS_CLIENT_CONFIGURED ? "準備中（Azure AD設定が必要です）" : null}
+          />
+
+          {/* Zoom Card */}
+          <ServiceCard
+            name="Zoom"
+            icon="🟣"
+            isConnected={!!auth.zoomToken}
+            email={auth.zoomEmail}
+            counts={[]}
+            onConnect={ZOOM_CLIENT_CONFIGURED ? () => {
+              window.location.href = zoomAuthUrl();
+            } : null}
+            onDisconnect={() => handleDisconnect("zoom")}
+            disabledMessage={!ZOOM_CLIENT_CONFIGURED ? "準備中（Zoom App登録が必要です）" : null}
           />
         </div>
       </div>

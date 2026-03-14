@@ -20,6 +20,7 @@ const V = {
 
 const navItems = [
   { id: "home", icon: "🏠", label: "ホーム" },
+  { id: "meetings", icon: "📹", label: "ミーティング" },
   {
     id: "skills",
     icon: "⚡",
@@ -37,6 +38,7 @@ export default function Sidebar({
   token,
   slackConnected,
   msToken,
+  zoomToken,
   onSettingsClick,
   skillCounts
 }) {
@@ -334,6 +336,27 @@ export default function Sidebar({
               />
               Outlook
             </div>
+
+            {/* Zoom */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                fontSize: "13px",
+                color: V.t2
+              }}
+            >
+              <div
+                style={{
+                  width: "8px",
+                  height: "8px",
+                  borderRadius: "50%",
+                  backgroundColor: zoomToken ? "#2D8CFF" : V.t4
+                }}
+              />
+              Zoom
+            </div>
           </div>
         </div>
       )}
@@ -363,6 +386,14 @@ export default function Sidebar({
               height: "8px",
               borderRadius: "50%",
               backgroundColor: msToken ? "#0078D4" : V.t4
+            }}
+          />
+          <div
+            style={{
+              width: "8px",
+              height: "8px",
+              borderRadius: "50%",
+              backgroundColor: zoomToken ? "#2D8CFF" : V.t4
             }}
           />
         </div>

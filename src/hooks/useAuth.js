@@ -8,6 +8,9 @@ const SLACK_CLIENT_ID = import.meta.env.VITE_SLACK_CLIENT_ID || "9162639476707.1
 const SLACK_USER_SCOPES = "channels:read,channels:history,groups:read,groups:history,chat:write,users:read,im:read,im:write,im:history";
 const MS_CLIENT_ID = import.meta.env.VITE_MS_CLIENT_ID || "2ea9b861-1582-4580-b6bd-18747f1132ce";
 const MS_SCOPES = "Mail.Read Calendars.ReadWrite User.Read Sites.Read.All Files.Read.All Chat.Read Team.ReadBasic.All Channel.ReadBasic.All";
+const ZOOM_CLIENT_ID = import.meta.env.VITE_ZOOM_CLIENT_ID || "";
+const ZOOM_REDIRECT = window.location.origin;
+const ZOOM_SCOPES = "meeting:write meeting:read user:read";
 
 // PKCE helpers for MS OAuth (SPA apps cannot use client_secret)
 function generateCodeVerifier() {
@@ -58,6 +61,18 @@ export function slackAuthUrl() {
   );
 }
 
+export function zoomAuthUrl() {
+  return (
+    "https://zoom.us/oauth/authorize?" +
+    new URLSearchParams({
+      client_id: ZOOM_CLIENT_ID,
+      redirect_uri: ZOOM_REDIRECT,
+      response_type: "code",
+      state: "zoom",
+    })
+  );
+}
+
 export async function msAuthUrl() {
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await generateCodeChallenge(codeVerifier);
@@ -86,6 +101,8 @@ export default function useAuth() {
   const [slackEmail, setSlackEmail] = useState(localStorage.getItem("slack_email") || "");
   const [msToken, setMsToken] = useState(localStorage.getItem("ms_token") || "");
   const [msEmail, setMsEmail] = useState(localStorage.getItem("ms_email") || "");
+  const [zoomToken, setZoomToken] = useState(localStorage.getItem("zoom_token") || "");
+  const [zoomEmail, setZoomEmail] = useState(localStorage.getItem("zoom_email") || "");
 
   // Handle OAuth callbacks (MS and Slack use auth code flow via server)
   useEffect(() => {
@@ -131,6 +148,26 @@ export default function useAuth() {
           })
           .catch(() => sessionStorage.removeItem("ms_code_verifier"));
       }
+    }
+    // Handle Zoom auth code
+    else if (code && state === "zoom") {
+      fetch(
+        "/api/zoom-oauth?code=" +
+          code +
+          "&redirect_uri=" +
+          encodeURIComponent(window.location.origin)
+      )
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.ok && data.access_token) {
+            localStorage.setItem("zoom_token", data.access_token);
+            setZoomToken(data.access_token);
+            if (data.refresh_token) {
+              localStorage.setItem("zoom_refresh_token", data.refresh_token);
+            }
+            window.history.replaceState({}, "", window.location.pathname);
+          }
+        });
     }
     // Handle Slack auth code
     else if (code && (state === "slack" || !state)) {
@@ -304,6 +341,14 @@ export default function useAuth() {
     setMsEmail("");
   };
 
+  const zoomLogout = () => {
+    localStorage.removeItem("zoom_token");
+    localStorage.removeItem("zoom_email");
+    localStorage.removeItem("zoom_refresh_token");
+    setZoomToken("");
+    setZoomEmail("");
+  };
+
   return {
     token,
     setToken,
@@ -322,5 +367,10 @@ export default function useAuth() {
     logout,
     slackLogout,
     msLogout,
+    zoomToken,
+    setZoomToken,
+    zoomEmail,
+    setZoomEmail,
+    zoomLogout,
   };
 }
