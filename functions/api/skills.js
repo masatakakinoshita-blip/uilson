@@ -23,7 +23,16 @@ export default async function handler(req, res) {
 
   try {
     const firestore = getDb();
-    const { action } = req.method === 'GET' ? req.query : (req.body || {});
+
+    // Safely parse body — Firebase Hosting proxy may pass body as string/buffer
+    let body = req.body || {};
+    if (typeof body === 'string') {
+      try { body = JSON.parse(body); } catch { body = {}; }
+    } else if (Buffer.isBuffer(body)) {
+      try { body = JSON.parse(body.toString('utf-8')); } catch { body = {}; }
+    }
+
+    const { action } = req.method === 'GET' ? req.query : body;
 
     switch (action) {
       // ===== SKILLS =====
