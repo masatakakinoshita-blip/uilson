@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 
-// Use VITE_GOOGLE_CLIENT_ID from environment (set in .env / functions/.env)
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+// OAuth Client IDs - env vars with hardcoded fallbacks (these are public values embedded in frontend JS)
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "1070729794323-earc67nk1sa29g9gb15m3vedsr3nmj16.apps.googleusercontent.com";
 const GOOGLE_REDIRECT = window.location.origin;
 const SCOPES = "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/documents";
-const SLACK_CLIENT_ID = import.meta.env.VITE_SLACK_CLIENT_ID;
+const SLACK_CLIENT_ID = import.meta.env.VITE_SLACK_CLIENT_ID || "8333652633248.8344227031682";
 const SLACK_USER_SCOPES = "channels:read,channels:history,groups:read,groups:history,chat:write,users:read,im:read,im:write,im:history";
-const MS_CLIENT_ID = import.meta.env.VITE_MS_CLIENT_ID;
+const MS_CLIENT_ID = import.meta.env.VITE_MS_CLIENT_ID || "";
 const MS_SCOPES = "Mail.Read Calendars.ReadWrite User.Read Sites.Read.All Files.Read.All Chat.Read Team.ReadBasic.All Channel.ReadBasic.All";
 
 // Detect if running inside a hidden iframe (silent refresh child)
