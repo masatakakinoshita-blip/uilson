@@ -138,8 +138,8 @@ export default function SettingsModal({ show, onClose, auth, emailCounts, eventC
               { label: "Mail", count: emailCounts?.outlook || 0 },
               { label: "Calendar", count: eventCounts?.outlook || 0 },
             ]}
-            onConnect={MS_CLIENT_CONFIGURED ? () => {
-              window.location.href = msAuthUrl();
+            onConnect={MS_CLIENT_CONFIGURED ? async () => {
+              window.location.href = await msAuthUrl();
             } : null}
             onDisconnect={() => handleDisconnect("outlook")}
             disabledMessage={!MS_CLIENT_CONFIGURED ? "準備中（Azure AD設定が必要です）" : null}

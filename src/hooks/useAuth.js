@@ -9,6 +9,22 @@ const SLACK_USER_SCOPES = "channels:read,channels:history,groups:read,groups:his
 const MS_CLIENT_ID = import.meta.env.VITE_MS_CLIENT_ID || "2ea9b861-1582-4580-b6bd-18747f1132ce";
 const MS_SCOPES = "Mail.Read Calendars.ReadWrite User.Read Sites.Read.All Files.Read.All Chat.Read Team.ReadBasic.All Channel.ReadBasic.All";
 
+// PKCE helpers for MS OAuth (SPA apps cannot use client_secret)
+function generateCodeVerifier() {
+  const array = new Uint8Array(32);
+  crypto.getRandomValues(array);
+  return btoa(String.fromCharCode(...array))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function generateCodeChallenge(verifier) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(verifier);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return btoa(String.fromCharCode(...new Uint8Array(digest)))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
 // Detect if running inside a hidden iframe (silent refresh child)
 const IS_IFRAME = window.self !== window.top;
 
@@ -42,7 +58,11 @@ export function slackAuthUrl() {
   );
 }
 
-export function msAuthUrl() {
+export async function msAuthUrl() {
+  const codeVerifier = generateCodeVerifier();
+  const codeChallenge = await generateCodeChallenge(codeVerifier);
+  // Store verifier for token exchange after redirect
+  sessionStorage.setItem("ms_code_verifier", codeVerifier);
   return (
     "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?" +
     new URLSearchParams({
@@ -52,6 +72,8 @@ export function msAuthUrl() {
       scope: MS_SCOPES,
       state: "ms",
       prompt: "select_account",
+      code_challenge: codeChallenge,
+      code_challenge_method: "S256",
     })
   );
 }
@@ -82,22 +104,33 @@ export default function useAuth() {
       }
     }
 
-    // Handle MS auth code
+    // Handle MS auth code via PKCE (exchange directly from frontend, no client_secret)
     if (code && state === "ms") {
-      fetch(
-        "/api/ms-oauth?code=" +
-          code +
-          "&redirect_uri=" +
-          encodeURIComponent(window.location.origin)
-      )
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.ok && data.access_token) {
-            localStorage.setItem("ms_token", data.access_token);
-            setMsToken(data.access_token);
-            window.history.replaceState({}, "", window.location.pathname);
-          }
-        });
+      const codeVerifier = sessionStorage.getItem("ms_code_verifier");
+      if (codeVerifier) {
+        fetch("https://login.microsoftonline.com/common/oauth2/v2.0/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            client_id: MS_CLIENT_ID,
+            code,
+            redirect_uri: window.location.origin,
+            grant_type: "authorization_code",
+            code_verifier: codeVerifier,
+            scope: MS_SCOPES,
+          }).toString(),
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            sessionStorage.removeItem("ms_code_verifier");
+            if (data.access_token) {
+              localStorage.setItem("ms_token", data.access_token);
+              setMsToken(data.access_token);
+              window.history.replaceState({}, "", window.location.pathname);
+            }
+          })
+          .catch(() => sessionStorage.removeItem("ms_code_verifier"));
+      }
     }
     // Handle Slack auth code
     else if (code && (state === "slack" || !state)) {
