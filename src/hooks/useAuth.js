@@ -117,6 +117,19 @@ export default function useAuth() {
     const code = params.get("code");
     const state = params.get("state");
 
+    // Guard: prevent double code exchange (codes are single-use)
+    if (code) {
+      const codeKey = "oauth_code_used_" + code.substring(0, 20);
+      if (sessionStorage.getItem(codeKey)) {
+        console.log("[OAuth] Code already used, skipping");
+        window.history.replaceState({}, "", window.location.pathname);
+        return;
+      }
+      sessionStorage.setItem(codeKey, "1");
+      // Clear URL immediately to prevent any refresh from re-using code
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+
     // Handle Slack token transfer from Vercel
     if (state === "slack_transfer") {
       const slackTok = params.get("slack_token");
@@ -150,7 +163,6 @@ export default function useAuth() {
             if (data.access_token) {
               localStorage.setItem("ms_token", data.access_token);
               setMsToken(data.access_token);
-              window.history.replaceState({}, "", window.location.pathname);
             }
           })
           .catch(() => sessionStorage.removeItem("ms_code_verifier"));
@@ -172,7 +184,6 @@ export default function useAuth() {
             if (data.refresh_token) {
               localStorage.setItem("zoom_refresh_token", data.refresh_token);
             }
-            window.history.replaceState({}, "", window.location.pathname);
           }
         });
     }
@@ -196,15 +207,12 @@ export default function useAuth() {
             localStorage.setItem("slack_token", data.access_token);
             setSlackToken(data.access_token);
             setSlackConnected(true);
-            window.history.replaceState({}, "", window.location.pathname);
           } else {
             console.error("[Slack OAuth] Token exchange failed:", data);
-            window.history.replaceState({}, "", window.location.pathname);
           }
         })
         .catch((err) => {
           console.error("[Slack OAuth] Fetch error:", err);
-          window.history.replaceState({}, "", window.location.pathname);
         });
     }
   }, []);
