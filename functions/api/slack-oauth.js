@@ -11,21 +11,39 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Try exchange WITHOUT redirect_uri first (Slack allows this if URL is registered in app settings)
     const params = new URLSearchParams({
       code,
       client_id: clientId,
       client_secret: clientSecret,
     });
-    if (redirect_uri) params.append("redirect_uri", redirect_uri);
 
-    const resp = await fetch("https://slack.com/api/oauth.v2.access", {
+    console.log("[Slack OAuth] Exchanging code (length:", code.length, ") without redirect_uri first");
+
+    let resp = await fetch("https://slack.com/api/oauth.v2.access", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: params.toString(),
     }).then((r) => r.json());
 
-    console.log("[Slack OAuth] Slack response keys:", Object.keys(resp));
-    console.log("[Slack OAuth] ok:", resp.ok, "has authed_user:", !!resp.authed_user);
+    // If it failed and redirect_uri was provided, retry WITH redirect_uri
+    if (!resp.ok && resp.error === "invalid_code" && redirect_uri) {
+      console.log("[Slack OAuth] Retrying with redirect_uri:", redirect_uri);
+      params.append("redirect_uri", redirect_uri);
+      resp = await fetch("https://slack.com/api/oauth.v2.access", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: params.toString(),
+      }).then((r) => r.json());
+    }
+
+    console.log("[Slack OAuth] Slack response:", JSON.stringify({
+      ok: resp.ok,
+      error: resp.error,
+      has_authed_user: !!resp.authed_user,
+      has_access_token: !!resp.access_token,
+      authed_user_keys: resp.authed_user ? Object.keys(resp.authed_user) : [],
+    }));
 
     if (!resp.ok) return res.status(400).json({ error: resp.error });
 
@@ -33,7 +51,7 @@ export default async function handler(req, res) {
     const userToken = resp.authed_user?.access_token || resp.access_token;
 
     if (!userToken) {
-      console.error("[Slack OAuth] No token found in response. authed_user:", JSON.stringify(resp.authed_user));
+      console.error("[Slack OAuth] No token found in response. Full authed_user:", JSON.stringify(resp.authed_user));
       return res.status(400).json({
         error: "no_token",
         message: "Slack returned ok but no access_token found",
