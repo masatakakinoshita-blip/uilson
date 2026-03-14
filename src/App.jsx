@@ -3,6 +3,8 @@ import "./styles.css";
 import useAuth from "./hooks/useAuth";
 import useDataFetch from "./hooks/useDataFetch";
 import useSkills from "./hooks/useSkills";
+import useSuggestions from "./hooks/useSuggestions";
+import { initClientFirebase } from "./services/firebase";
 import Sidebar from "./components/Sidebar";
 import ChatView from "./components/ChatView";
 import CreatePptx from "./components/CreatePptx";
@@ -17,6 +19,26 @@ export default function App() {
   const auth = useAuth();
   const data = useDataFetch(auth);
   const skillsHook = useSkills();
+
+  // Initialize Firebase client SDK (for Firestore onSnapshot)
+  const [firebaseReady, setFirebaseReady] = useState(false);
+  useEffect(() => {
+    initClientFirebase()
+      .then(() => setFirebaseReady(true))
+      .catch((err) => console.warn('[Firebase] Client init failed:', err));
+  }, []);
+
+  // userId for suggestions: use Google email or fallback
+  const userId = auth.googleEmail || localStorage.getItem("g_email") || "";
+  const suggestionsHook = useSuggestions(firebaseReady ? userId : null);
+
+  // Trigger initial suggestion generation on load (zero-second experience)
+  useEffect(() => {
+    if (userId && firebaseReady) {
+      fetch(`/api/suggest/generate/${encodeURIComponent(userId)}`, { method: 'POST' })
+        .catch(() => {}); // fire-and-forget
+    }
+  }, [userId, firebaseReady]);
 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -242,6 +264,9 @@ export default function App() {
               setFeedbackGiven((prev) => ({ ...prev, [logId]: fb }));
             }}
             setView={setView}
+            aiSuggestions={suggestionsHook.suggestions}
+            onSuggestionClick={suggestionsHook.clickSuggestion}
+            onSuggestionDismiss={suggestionsHook.dismissSuggestion}
           />
         );
     }

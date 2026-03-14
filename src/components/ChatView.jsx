@@ -112,7 +112,10 @@ export default function ChatView({
   lastExecLogId,
   feedbackGiven,
   onFeedback,
-  setView
+  setView,
+  aiSuggestions = [],
+  onSuggestionClick,
+  onSuggestionDismiss,
 }) {
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
@@ -141,6 +144,11 @@ export default function ChatView({
     } else if (card.action) {
       send(card.action);
     }
+  };
+
+  const handleAiSuggestionClick = (sug) => {
+    if (onSuggestionClick) onSuggestionClick(sug.id);
+    if (sug.action) send(sug.action);
   };
 
   const hasMessages = messages.length > 0;
@@ -259,6 +267,67 @@ export default function ChatView({
                   </button>
                 ))}
               </div>
+
+              {/* AI-generated suggestion cards (from Firestore onSnapshot) */}
+              {aiSuggestions.length > 0 && (
+                <>
+                  <div style={{ fontSize: "11px", fontWeight: "600", color: V.lime, marginBottom: "10px", marginTop: "4px", textTransform: "uppercase", letterSpacing: "0.5px", display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: V.lime, display: "inline-block", animation: "pulse 2s infinite" }} />
+                    AI おすすめ
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: `repeat(${Math.min(aiSuggestions.length, 4)}, 1fr)`,
+                      gap: "10px",
+                      marginBottom: "20px"
+                    }}
+                  >
+                    {aiSuggestions.slice(0, 4).map((sug) => (
+                      <button
+                        key={sug.id}
+                        onClick={() => handleAiSuggestionClick(sug)}
+                        style={{
+                          padding: "14px 10px",
+                          backgroundColor: V.card,
+                          border: `1px solid ${sug.priority === "high" ? V.orange + "60" : V.border}`,
+                          borderRadius: "10px",
+                          cursor: "pointer",
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          gap: "6px",
+                          transition: "all 0.2s ease",
+                          position: "relative"
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = V.bg;
+                          e.currentTarget.style.borderColor = V.lime;
+                          e.currentTarget.style.transform = "translateY(-2px)";
+                          e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.08)";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = V.card;
+                          e.currentTarget.style.borderColor = sug.priority === "high" ? V.orange + "60" : V.border;
+                          e.currentTarget.style.transform = "translateY(0)";
+                          e.currentTarget.style.boxShadow = "none";
+                        }}
+                      >
+                        {sug.priority === "high" && (
+                          <span style={{ position: "absolute", top: "6px", right: "8px", fontSize: "8px", backgroundColor: V.orange + "20", color: V.orange, padding: "1px 5px", borderRadius: "4px", fontWeight: "600" }}>
+                            重要
+                          </span>
+                        )}
+                        <span style={{ fontSize: "22px" }}>
+                          {sug.type === "email_action" ? "📧" : sug.type === "calendar_prep" ? "📅" : sug.type === "slack_update" ? "💬" : "✨"}
+                        </span>
+                        <span style={{ fontSize: "12px", fontWeight: "600", color: V.t2, textAlign: "center", lineHeight: "1.3" }}>{sug.title}</span>
+                        <span style={{ fontSize: "10px", color: V.t4, textAlign: "center", lineHeight: "1.3" }}>{sug.body}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
 
               {/* Create Documents Row */}
               <div style={{ fontSize: "11px", fontWeight: "600", color: V.t4, marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
@@ -436,6 +505,39 @@ export default function ChatView({
             flexWrap: "wrap"
           }}
         >
+          {/* AI suggestion chips first */}
+          {aiSuggestions.slice(0, 2).map((sug) => (
+            <button
+              key={`ai-${sug.id}`}
+              onClick={() => handleAiSuggestionClick(sug)}
+              style={{
+                padding: "6px 12px",
+                backgroundColor: V.lime + "12",
+                border: `1px solid ${V.lime}40`,
+                borderRadius: "16px",
+                cursor: "pointer",
+                fontSize: "12px",
+                color: V.t2,
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                transition: "all 0.15s ease"
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = V.lime;
+                e.currentTarget.style.backgroundColor = V.lime + "20";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = V.lime + "40";
+                e.currentTarget.style.backgroundColor = V.lime + "12";
+              }}
+            >
+              <span style={{ fontSize: "13px" }}>
+                {sug.type === "email_action" ? "📧" : sug.type === "calendar_prep" ? "📅" : sug.type === "slack_update" ? "💬" : "✨"}
+              </span>
+              <span>{sug.title?.replace(/^[📧📅💬✨]\s*/, "")}</span>
+            </button>
+          ))}
           {suggestionCards.filter(c => c.type === "action").slice(0, 3).map((card) => (
             <button
               key={card.id}
