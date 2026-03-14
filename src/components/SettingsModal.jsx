@@ -1,7 +1,7 @@
 import { googleAuthUrl, slackAuthUrl, msAuthUrl } from "../hooks/useAuth";
 
 // Check if OAuth Client IDs are configured (empty = not available)
-const MS_CLIENT_CONFIGURED = !!(import.meta.env.VITE_MS_CLIENT_ID || "");
+const MS_CLIENT_CONFIGURED = !!(import.meta.env.VITE_MS_CLIENT_ID || "2ea9b861-1582-4580-b6bd-18747f1132ce");
 
 const V = {
   bg: "#F0F2F7",
