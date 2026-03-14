@@ -97,7 +97,14 @@ export default function useAuth() {
   const [token, setToken] = useState(localStorage.getItem("g_token") || "");
   const [googleEmail, setGoogleEmail] = useState(localStorage.getItem("g_email") || "");
   const [slackConnected, setSlackConnected] = useState(false);
-  const [slackToken, setSlackToken] = useState(localStorage.getItem("slack_token"));
+  // Clean up invalid "undefined" token from localStorage
+  const savedSlackToken = localStorage.getItem("slack_token");
+  if (savedSlackToken === "undefined" || savedSlackToken === "null") {
+    localStorage.removeItem("slack_token");
+  }
+  const [slackToken, setSlackToken] = useState(
+    savedSlackToken && savedSlackToken !== "undefined" && savedSlackToken !== "null" ? savedSlackToken : null
+  );
   const [slackEmail, setSlackEmail] = useState(localStorage.getItem("slack_email") || "");
   const [msToken, setMsToken] = useState(localStorage.getItem("ms_token") || "");
   const [msEmail, setMsEmail] = useState(localStorage.getItem("ms_email") || "");
@@ -179,7 +186,8 @@ export default function useAuth() {
       )
         .then((r) => r.json())
         .then((data) => {
-          if (data.ok && data.access_token) {
+          console.log("[Slack OAuth] Response:", JSON.stringify(data));
+          if (data.ok && data.access_token && data.access_token !== "undefined") {
             // If we're on Vercel but should be on Firebase, transfer the token
             if (window.location.origin !== FIREBASE_ORIGIN && FIREBASE_ORIGIN) {
               window.location.href = FIREBASE_ORIGIN + "?slack_token=" + encodeURIComponent(data.access_token) + "&state=slack_transfer";
@@ -187,8 +195,16 @@ export default function useAuth() {
             }
             localStorage.setItem("slack_token", data.access_token);
             setSlackToken(data.access_token);
+            setSlackConnected(true);
+            window.history.replaceState({}, "", window.location.pathname);
+          } else {
+            console.error("[Slack OAuth] Token exchange failed:", data);
             window.history.replaceState({}, "", window.location.pathname);
           }
+        })
+        .catch((err) => {
+          console.error("[Slack OAuth] Fetch error:", err);
+          window.history.replaceState({}, "", window.location.pathname);
         });
     }
   }, []);
