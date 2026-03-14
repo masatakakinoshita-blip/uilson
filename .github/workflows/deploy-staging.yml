@@ -21,9 +21,6 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Install functions dependencies
-        run: cd functions && npm install
-
       - id: auth
         uses: google-github-actions/auth@v2
         with:
@@ -32,39 +29,41 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Install Firebase CLI
-        run: npm install -g firebase-tools
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker asia-northeast1-docker.pkg.dev --quiet
 
-      - name: Create functions .env
-        run: |
-          echo "VITE_SLACK_CLIENT_ID=9162639476707.10688200182512" > functions/.env
-          echo "SLACK_CLIENT_SECRET=${{ secrets.SLACK_CLIENT_SECRET }}" >> functions/.env
-          echo "VITE_GOOGLE_CLIENT_ID=${{ secrets.VITE_GOOGLE_CLIENT_ID }}" >> functions/.env
-          echo "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" >> functions/.env
-          echo "VITE_MS_CLIENT_ID=${{ secrets.VITE_MS_CLIENT_ID }}" >> functions/.env
-          echo "MS_CLIENT_SECRET=${{ secrets.MS_CLIENT_SECRET }}" >> functions/.env
-          echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" >> functions/.env
-          echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> functions/.env
-          echo "Functions .env created with $(wc -l < functions/.env) lines"
-
-      - name: Deploy Cloud Functions
+      - name: Create Artifact Registry repo (if needed)
         continue-on-error: true
         run: |
-          firebase deploy --only functions --project uilson-489209 --force --debug 2>&1 | tail -100
+          gcloud artifacts repositories create uilson-api \
+            --repository-format=docker \
+            --location=asia-northeast1 \
+            --project=uilson-489209 \
+            --quiet 2>/dev/null || true
 
-      - name: Deploy to Cloud Run (with env vars)
-        continue-on-error: true
-        env:
-          CR_ENV_VARS: "VITE_SLACK_CLIENT_ID=9162639476707.10688200182512,VITE_GOOGLE_CLIENT_ID=${{ secrets.VITE_GOOGLE_CLIENT_ID }},VITE_MS_CLIENT_ID=${{ secrets.VITE_MS_CLIENT_ID }},SLACK_CLIENT_SECRET=${{ secrets.SLACK_CLIENT_SECRET }},GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }},MS_CLIENT_SECRET=${{ secrets.MS_CLIENT_SECRET }},ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }},GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}"
+      - name: Build and push Docker image
         run: |
+          IMAGE="asia-northeast1-docker.pkg.dev/uilson-489209/uilson-api/server:${{ github.sha }}"
+          IMAGE_LATEST="asia-northeast1-docker.pkg.dev/uilson-489209/uilson-api/server:latest"
           cd server
+          docker build -t "$IMAGE" -t "$IMAGE_LATEST" .
+          docker push "$IMAGE"
+          docker push "$IMAGE_LATEST"
+          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+
+      - name: Deploy to Cloud Run
+        run: |
           gcloud run deploy uilson-api \
-            --source . \
+            --image "$IMAGE" \
             --region asia-northeast1 \
             --allow-unauthenticated \
             --add-cloudsql-instances uilson-489209:asia-northeast1:uilson-db \
-            --update-env-vars="$CR_ENV_VARS" \
+            --update-env-vars="VITE_SLACK_CLIENT_ID=9162639476707.10688200182512,VITE_GOOGLE_CLIENT_ID=${{ secrets.VITE_GOOGLE_CLIENT_ID }},VITE_MS_CLIENT_ID=${{ secrets.VITE_MS_CLIENT_ID }},SLACK_CLIENT_SECRET=${{ secrets.SLACK_CLIENT_SECRET }},GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }},MS_CLIENT_SECRET=${{ secrets.MS_CLIENT_SECRET }},ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }},GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" \
+            --project uilson-489209 \
             --quiet
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
 
       - name: Deploy to Firebase Hosting (staging)
         uses: FirebaseExtended/action-hosting-deploy@v0

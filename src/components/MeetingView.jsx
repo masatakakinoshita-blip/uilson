@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 
 const V = {
   bg: "#F4F1EE",
@@ -17,85 +17,116 @@ const V = {
   lime: "#A8C868",
 };
 
-// Timezone mappings for validation
-const TZ_OFFSETS = {
-  "Asia/Tokyo": 9,
-  "Asia/Kolkata": 5.5,
-  "Asia/Calcutta": 5.5,
-  "America/New_York": -5,
-  "America/Los_Angeles": -8,
-  "Europe/London": 0,
-  "UTC": 0,
-};
-
 // Video conference link detection patterns
 const LINK_PATTERNS = {
   zoom: {
-    regex: /https:\/\/[a-z0-9-]*\.?zoom\.us\/j\/(\d+)/i,
+    regex: /https:\/\/[a-z0-9-]*\.?zoom\.us\/j\/(\d+)[^\s"<>]*/i,
     label: "Zoom",
     icon: "📹",
     color: "#2D8CFF",
+    shortLabel: "Zoom",
   },
   meet: {
     regex: /https:\/\/meet\.google\.com\/([a-z]{3}-[a-z]{4}-[a-z]{3})/i,
     label: "Google Meet",
     icon: "🟢",
     color: "#00897B",
+    shortLabel: "Meet",
   },
   teams: {
     regex: /https:\/\/teams\.microsoft\.com\/l\/meetup-join\/[^\s"<>]+/i,
     label: "Microsoft Teams",
     icon: "🟪",
     color: "#6264A7",
+    shortLabel: "Teams",
   },
 };
 
-// Extract all video conference links from event text
 function detectVideoLinks(event) {
-  const searchText = [event.location, event.summary, event.description].filter(Boolean).join(" ");
+  const searchText = [event.location, event.summary, event.description]
+    .filter(Boolean)
+    .join(" ");
   const found = [];
   for (const [platform, pattern] of Object.entries(LINK_PATTERNS)) {
     const match = searchText.match(pattern.regex);
     if (match) {
-      found.push({ platform, match: match[0], id: match[1] || match[0], ...pattern });
+      found.push({
+        platform,
+        url: match[0],
+        id: match[1] || match[0],
+        ...pattern,
+      });
     }
   }
   return found;
 }
 
-// Detect issues in calendar events
-function analyzeEvents(googleEvents, outlookEvents, zoomMeetings) {
-  const issues = [];
-  const allEvents = [
-    ...googleEvents.map((e) => ({ ...e, source: "google" })),
-    ...outlookEvents.map((e) => ({ ...e, source: "outlook" })),
-  ];
+// Format time like "14:00"
+function fmtTime(date) {
+  return date.toLocaleTimeString("ja-JP", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
 
-  // Build Zoom meeting lookup by join_url
-  const zoomByUrl = {};
-  zoomMeetings.forEach((m) => {
-    if (m.join_url) zoomByUrl[m.join_url] = m;
+// Format duration like "1h", "30m", "1h30m"
+function fmtDuration(startDate, endDate) {
+  const mins = Math.round((endDate - startDate) / (1000 * 60));
+  if (mins < 60) return `${mins}分`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m > 0 ? `${h}時間${m}分` : `${h}時間`;
+}
+
+// Format date header like "今日 (3月15日 月曜日)"
+function fmtDateHeader(date) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diff = (target - today) / (1000 * 60 * 60 * 24);
+
+  const dateStr = date.toLocaleDateString("ja-JP", {
+    month: "long",
+    day: "numeric",
+    weekday: "long",
   });
 
+  if (diff === 0) return `今日  ${dateStr}`;
+  if (diff === 1) return `明日  ${dateStr}`;
+  if (diff === 2) return `明後日  ${dateStr}`;
+  return dateStr;
+}
+
+// Group events by date
+function groupByDate(events) {
+  const groups = {};
+  events.forEach((evt) => {
+    const d = new Date(evt.start);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(evt);
+  });
+  // Sort each group by start time
+  Object.values(groups).forEach((g) =>
+    g.sort((a, b) => new Date(a.start) - new Date(b.start))
+  );
+  return groups;
+}
+
+// Detect issues (simplified from original — runs in background)
+function detectIssues(events) {
+  const issues = [];
   const now = new Date();
   const threeDaysLater = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
-  allEvents.forEach((event) => {
+  events.forEach((event) => {
     const start = new Date(event.start);
-    // Only check events in the next 3 days
     if (start < now || start > threeDaysLater) return;
 
     const summary = (event.summary || "").toLowerCase();
-    const location = (event.location || "").toLowerCase();
-
-    // Detect all video conference links
     const videoLinks = detectVideoLinks(event);
-    const hasAnyVideoLink = videoLinks.length > 0;
-    const zoomLink = videoLinks.find((l) => l.platform === "zoom");
-    const meetLink = videoLinks.find((l) => l.platform === "meet");
-    const teamsLink = videoLinks.find((l) => l.platform === "teams");
 
-    // 1. Detect missing video link for meetings that look like they need one
     const looksLikeMeeting =
       summary.includes("meeting") ||
       summary.includes("ミーティング") ||
@@ -109,109 +140,31 @@ function analyzeEvents(googleEvents, outlookEvents, zoomMeetings) {
       summary.includes("打ち合わせ") ||
       summary.includes("面談");
 
-    if (looksLikeMeeting && !hasAnyVideoLink) {
+    if (looksLikeMeeting && videoLinks.length === 0) {
       issues.push({
+        eventId: event.id,
         type: "missing_link",
         severity: "warning",
-        event,
-        message: "ビデオ会議リンクが設定されていません",
-        suggestion: "Zoom / Google Meet / Teamsのリンクを追加してください",
+        message: "ビデオリンクなし",
       });
     }
 
-    // 2. Detect multiple conflicting video links
     if (videoLinks.length > 1) {
-      const platforms = videoLinks.map((l) => l.label).join(", ");
       issues.push({
+        eventId: event.id,
         type: "multiple_links",
         severity: "warning",
-        event,
-        videoLinks,
-        message: `複数のビデオ会議リンクが設定されています（${platforms}）`,
-        suggestion: "参加者が混乱しないよう、1つに統一してください",
+        message: "複数のビデオリンク",
       });
     }
 
-    // 3. Zoom-specific: validate against Zoom API data
-    if (zoomLink) {
-      const zoomMeeting = Object.values(zoomByUrl).find(
-        (m) => m.join_url && m.join_url.includes(zoomLink.id)
-      );
-
-      if (zoomMeeting) {
-        // Check timezone mismatch
-        const zoomStart = new Date(zoomMeeting.start_time);
-        const calStart = new Date(event.start);
-        const timeDiffMinutes = Math.abs(zoomStart - calStart) / (1000 * 60);
-
-        if (timeDiffMinutes > 5) {
-          const hoursDiff = Math.round(timeDiffMinutes / 60);
-          issues.push({
-            type: "time_mismatch",
-            severity: "error",
-            event,
-            zoomMeeting,
-            message: `Zoomの開始時間とカレンダーが${hoursDiff > 0 ? hoursDiff + "時間" : Math.round(timeDiffMinutes) + "分"}ずれています`,
-            suggestion: "正しい時間で新しいZoomミーティングを再作成",
-          });
-        }
-
-        // Check if timezone is India but event is for Tokyo team
-        if (
-          zoomMeeting.timezone &&
-          (zoomMeeting.timezone.includes("Kolkata") || zoomMeeting.timezone.includes("Calcutta"))
-        ) {
-          issues.push({
-            type: "wrong_timezone",
-            severity: "warning",
-            event,
-            zoomMeeting,
-            message: `Zoomのタイムゾーンがインド(IST)に設定されています`,
-            suggestion: "東京時間(JST)で新しいZoomミーティングを作成",
-          });
-        }
-      }
-    }
-
-    // 4. Google Meet link validation (basic format check)
-    if (meetLink) {
-      // Google Meet links are auto-generated by Google Calendar,
-      // so mainly check if the event source matches
-      if (event.source === "outlook") {
-        issues.push({
-          type: "platform_mismatch",
-          severity: "info",
-          event,
-          videoLinks,
-          message: "OutlookカレンダーにGoogle Meetリンクが設定されています",
-          suggestion: "参加者全員がGoogle Meetにアクセスできるか確認してください",
-        });
-      }
-    }
-
-    // 5. Teams link validation
-    if (teamsLink) {
-      if (event.source === "google") {
-        issues.push({
-          type: "platform_mismatch",
-          severity: "info",
-          event,
-          videoLinks,
-          message: "GoogleカレンダーにTeamsリンクが設定されています",
-          suggestion: "参加者全員がTeamsにアクセスできるか確認してください",
-        });
-      }
-    }
-
-    // 6. Check for events very early or late (possible timezone confusion)
     const hour = start.getHours();
-    if ((hour >= 0 && hour <= 4) || (hour >= 23 && hour <= 24)) {
+    if ((hour >= 0 && hour <= 4) || hour >= 23) {
       issues.push({
+        eventId: event.id,
         type: "unusual_time",
         severity: "info",
-        event,
-        message: `異常な時間帯（${hour}時）の会議です。タイムゾーンの設定ミスの可能性があります`,
-        suggestion: "会議時間を確認してください",
+        message: "深夜の会議",
       });
     }
   });
@@ -220,672 +173,695 @@ function analyzeEvents(googleEvents, outlookEvents, zoomMeetings) {
 }
 
 export default function MeetingView({ auth, data }) {
-  const [issues, setIssues] = useState([]);
-  const [scanning, setScanning] = useState(false);
-  const [actionLog, setActionLog] = useState([]);
-  const [creatingMeeting, setCreatingMeeting] = useState(null); // issue index being fixed
-  const [newMeetingForm, setNewMeetingForm] = useState({
-    topic: "",
-    start_time: "",
-    duration: 60,
-    timezone: "Asia/Tokyo",
-  });
+  const [view, setView] = useState("timeline"); // "timeline" | "issues"
+  const [copiedId, setCopiedId] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
+  const [timeRange, setTimeRange] = useState(7); // days to show
 
-  const scan = useCallback(() => {
-    setScanning(true);
-    const googleEvents = data.events || [];
-    const outlookEvents = data.outlookEvents || [];
-    const zoomMeetings = data.zoomMeetings || [];
-    const found = analyzeEvents(googleEvents, outlookEvents, zoomMeetings);
-    setIssues(found);
-    setScanning(false);
-  }, [data.events, data.outlookEvents, data.zoomMeetings]);
-
-  useEffect(() => {
-    if (data.events.length > 0 || data.outlookEvents.length > 0) {
-      scan();
-    }
-  }, [data.events, data.outlookEvents, data.zoomMeetings, scan]);
-
-  const createReplacementMeeting = async (issue, idx) => {
-    if (!auth.zoomToken) {
-      setActionLog((prev) => [
-        ...prev,
-        { type: "error", message: "Zoomが接続されていません。設定からZoomを接続してください。", time: new Date() },
-      ]);
-      return;
-    }
-
-    setCreatingMeeting(idx);
-
-    // Pre-fill form from event data
-    const event = issue.event;
-    const start = new Date(event.start);
-    // Format for datetime-local input
-    const pad = (n) => String(n).padStart(2, "0");
-    const localStr = `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}T${pad(start.getHours())}:${pad(start.getMinutes())}`;
-
-    const endTime = event.end ? new Date(event.end) : new Date(start.getTime() + 60 * 60 * 1000);
-    const durationMin = Math.round((endTime - start) / (1000 * 60));
-
-    setNewMeetingForm({
-      topic: event.summary || "Meeting",
-      start_time: localStr,
-      duration: durationMin || 60,
-      timezone: "Asia/Tokyo",
-    });
-  };
-
-  const submitNewMeeting = async (issueIdx) => {
-    const issue = issues[issueIdx];
-    try {
-      setActionLog((prev) => [
-        ...prev,
-        { type: "info", message: `新しいZoomミーティングを作成中: ${newMeetingForm.topic}`, time: new Date() },
-      ]);
-
-      // Convert local datetime to ISO format with timezone
-      const startDate = new Date(newMeetingForm.start_time);
-      const isoStart = startDate.toISOString();
-
-      const meetingBody = {
-        topic: newMeetingForm.topic,
-        type: 2, // Scheduled meeting
-        start_time: isoStart,
-        duration: newMeetingForm.duration,
-        timezone: newMeetingForm.timezone,
-        settings: {
-          join_before_host: true,
-          waiting_room: false,
-          auto_recording: "none",
-          mute_upon_entry: true,
-        },
-      };
-
-      const res = await fetch("/api/zoom-meetings?action=create", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-zoom-token": auth.zoomToken,
-        },
-        body: JSON.stringify({ action: "create", meeting: meetingBody }),
-      });
-
-      const result = await res.json();
-
-      if (result.id && result.join_url) {
-        setActionLog((prev) => [
-          ...prev,
-          {
-            type: "success",
-            message: `Zoomミーティング作成完了! ID: ${result.id}`,
-            joinUrl: result.join_url,
-            time: new Date(),
-          },
-        ]);
-
-        // Try to update Google Calendar event with new Zoom link
-        if (issue.event.source === "google" && auth.token) {
-          try {
-            await fetch(
-              `https://www.googleapis.com/calendar/v3/calendars/primary/events/${issue.event.id}`,
-              {
-                method: "PATCH",
-                headers: {
-                  Authorization: `Bearer ${auth.token}`,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  location: result.join_url,
-                  description:
-                    (issue.event.description || "") +
-                    `\n\n[UILSON] Zoom meeting updated: ${result.join_url}`,
-                }),
-              }
-            );
-            setActionLog((prev) => [
-              ...prev,
-              { type: "success", message: "Googleカレンダーを更新しました", time: new Date() },
-            ]);
-          } catch (e) {
-            setActionLog((prev) => [
-              ...prev,
-              { type: "warning", message: `カレンダー更新に失敗: ${e.message}`, time: new Date() },
-            ]);
-          }
-        }
-
-        // Try to send Slack notification if connected
-        if (auth.slackToken) {
-          try {
-            await fetch("/api/slack-messages", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                token: auth.slackToken,
-                action: "notify",
-                message: `会議「${newMeetingForm.topic}」のZoomリンクが更新されました。\n新しいリンク: ${result.join_url}`,
-              }),
-            });
-            setActionLog((prev) => [
-              ...prev,
-              { type: "success", message: "Slack通知を送信しました", time: new Date() },
-            ]);
-          } catch {
-            // Slack notification is best-effort
-          }
-        }
-
-        // Mark issue as resolved
-        setIssues((prev) =>
-          prev.map((iss, i) =>
-            i === issueIdx ? { ...iss, resolved: true, newJoinUrl: result.join_url } : iss
-          )
-        );
-      } else {
-        setActionLog((prev) => [
-          ...prev,
-          { type: "error", message: `Zoom作成エラー: ${JSON.stringify(result)}`, time: new Date() },
-        ]);
-      }
-    } catch (e) {
-      setActionLog((prev) => [
-        ...prev,
-        { type: "error", message: `エラー: ${e.message}`, time: new Date() },
-      ]);
-    }
-    setCreatingMeeting(null);
-  };
-
-  const severityColor = (s) =>
-    s === "error" ? V.red : s === "warning" ? V.orange : V.accent;
-  const severityLabel = (s) =>
-    s === "error" ? "要修正" : s === "warning" ? "注意" : "情報";
-  const logColor = (t) =>
-    t === "error" ? V.red : t === "success" ? V.green : t === "warning" ? V.orange : V.accent;
-
-  const hasConnections = !!auth.token || !!auth.msToken;
+  const hasGoogle = !!auth.token;
+  const hasOutlook = !!auth.msToken;
+  const hasAnyCalendar = hasGoogle || hasOutlook;
   const hasZoom = !!auth.zoomToken;
 
+  // Merge all events into a unified list
+  const allEvents = useMemo(() => {
+    const now = new Date();
+    const cutoff = new Date(now.getTime() + timeRange * 24 * 60 * 60 * 1000);
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    const google = (data.events || []).map((e) => ({
+      ...e,
+      source: "google",
+      sourceLabel: "Google",
+      sourceColor: "#4285F4",
+    }));
+    const outlook = (data.outlookEvents || []).map((e) => ({
+      ...e,
+      source: "outlook",
+      sourceLabel: "Outlook",
+      sourceColor: "#0078D4",
+    }));
+
+    return [...google, ...outlook]
+      .filter((e) => {
+        const s = new Date(e.start);
+        return s >= startOfToday && s <= cutoff;
+      })
+      .sort((a, b) => new Date(a.start) - new Date(b.start));
+  }, [data.events, data.outlookEvents, timeRange]);
+
+  // Issues analysis
+  const issues = useMemo(() => detectIssues(allEvents), [allEvents]);
+  const issuesByEventId = useMemo(() => {
+    const map = {};
+    issues.forEach((i) => {
+      if (!map[i.eventId]) map[i.eventId] = [];
+      map[i.eventId].push(i);
+    });
+    return map;
+  }, [issues]);
+
+  // Group events by date
+  const grouped = useMemo(() => groupByDate(allEvents), [allEvents]);
+  const dateKeys = Object.keys(grouped).sort();
+
+  // Find the "now" position
+  const now = new Date();
+
+  const copyLink = (url, id) => {
+    navigator.clipboard.writeText(url);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "32px" }}>
+    <div style={{ flex: 1, overflowY: "auto", padding: "32px", maxWidth: "900px", margin: "0 auto" }}>
       {/* Header */}
-      <div style={{ marginBottom: "24px" }}>
-        <h1
-          style={{
-            fontSize: "24px",
-            fontWeight: "700",
-            color: V.t1,
-            margin: 0,
-            display: "flex",
-            alignItems: "center",
-            gap: "12px",
-          }}
-        >
-          <span style={{ fontSize: "28px" }}>📹</span>
-          ミーティング管理
-        </h1>
-        <p style={{ color: V.t3, fontSize: "14px", margin: "8px 0 0 40px" }}>
-          カレンダーとZoomの不整合を検出し、自動修正します
-        </p>
-      </div>
-
-      {/* Connection Status Banner */}
-      {(!hasConnections || !hasZoom) && (
-        <div
-          style={{
-            background: `${V.orange}12`,
-            border: `1px solid ${V.orange}40`,
-            borderRadius: "10px",
-            padding: "16px 20px",
-            marginBottom: "20px",
-            display: "flex",
-            alignItems: "center",
-            gap: "12px",
-          }}
-        >
-          <span style={{ fontSize: "20px" }}>⚠️</span>
-          <div>
-            <div style={{ fontSize: "14px", fontWeight: "600", color: V.t1 }}>
-              接続が必要です
-            </div>
-            <div style={{ fontSize: "13px", color: V.t2, marginTop: "4px" }}>
-              {!hasConnections && "Google CalendarまたはOutlookを接続してください。"}
-              {hasConnections && !hasZoom && "Zoomを接続すると、ミーティングの自動修正が可能になります。"}
-              設定(⚙️)から接続できます。
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Scan Summary */}
       <div
         style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-          gap: "16px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
           marginBottom: "24px",
         }}
       >
-        <StatCard
-          label="検出された問題"
-          value={issues.filter((i) => !i.resolved).length}
-          icon="🔍"
-          color={issues.filter((i) => !i.resolved).length > 0 ? V.red : V.green}
-        />
-        <StatCard
-          label="解決済み"
-          value={issues.filter((i) => i.resolved).length}
-          icon="✅"
-          color={V.green}
-        />
-        <StatCard
-          label="次の3日間の会議"
-          value={(data.events || []).length + (data.outlookEvents || []).length}
-          icon="📅"
-          color={V.accent}
-        />
-        <StatCard
-          label="Zoom会議"
-          value={(data.zoomMeetings || []).length}
-          icon="📹"
-          color={V.teal}
-        />
-      </div>
+        <div>
+          <h1
+            style={{
+              fontSize: "22px",
+              fontWeight: "700",
+              color: V.t1,
+              margin: 0,
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+            }}
+          >
+            <span style={{ fontSize: "26px" }}>📅</span>
+            ミーティング
+          </h1>
+          <p style={{ color: V.t3, fontSize: "13px", margin: "6px 0 0 36px" }}>
+            {hasAnyCalendar
+              ? `${allEvents.length}件の予定（${timeRange}日間）`
+              : "カレンダーを接続してください"}
+          </p>
+        </div>
 
-      {/* Scan Button */}
-      <div style={{ marginBottom: "24px" }}>
-        <button
-          onClick={scan}
-          disabled={scanning || !hasConnections}
-          style={{
-            background: V.accent,
-            color: V.white,
-            border: "none",
-            borderRadius: "8px",
-            padding: "12px 24px",
-            fontSize: "14px",
-            fontWeight: "600",
-            cursor: scanning || !hasConnections ? "not-allowed" : "pointer",
-            opacity: scanning || !hasConnections ? 0.5 : 1,
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-          }}
-        >
-          {scanning ? "⏳ スキャン中..." : "🔄 再スキャン"}
-        </button>
-      </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          {/* Time range selector */}
+          <select
+            value={timeRange}
+            onChange={(e) => setTimeRange(parseInt(e.target.value))}
+            style={{
+              padding: "6px 10px",
+              border: `1px solid ${V.border}`,
+              borderRadius: "6px",
+              fontSize: "13px",
+              color: V.t2,
+              background: V.white,
+              cursor: "pointer",
+            }}
+          >
+            <option value={3}>3日間</option>
+            <option value={7}>1週間</option>
+            <option value={14}>2週間</option>
+            <option value={30}>1ヶ月</option>
+          </select>
 
-      {/* Issues List */}
-      {issues.length > 0 && (
-        <div style={{ marginBottom: "24px" }}>
-          <h2 style={{ fontSize: "18px", fontWeight: "600", color: V.t1, marginBottom: "16px" }}>
-            検出された問題
-          </h2>
-          {issues.map((issue, idx) => (
-            <div
-              key={idx}
+          {/* View toggle */}
+          {issues.length > 0 && (
+            <button
+              onClick={() => setView(view === "timeline" ? "issues" : "timeline")}
               style={{
-                background: issue.resolved ? `${V.green}08` : V.card,
-                border: `1px solid ${issue.resolved ? V.green + "40" : V.border}`,
-                borderRadius: "10px",
-                padding: "18px",
-                marginBottom: "12px",
-                borderLeft: `4px solid ${issue.resolved ? V.green : severityColor(issue.severity)}`,
+                padding: "6px 12px",
+                border: `1px solid ${view === "issues" ? V.orange : V.border}`,
+                borderRadius: "6px",
+                fontSize: "13px",
+                fontWeight: "500",
+                color: view === "issues" ? V.orange : V.t2,
+                background: view === "issues" ? `${V.orange}10` : V.white,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
               }}
             >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "flex-start",
-                  justifyContent: "space-between",
-                  gap: "12px",
-                }}
-              >
-                <div style={{ flex: 1 }}>
-                  {/* Severity badge */}
-                  <span
-                    style={{
-                      display: "inline-block",
-                      fontSize: "11px",
-                      fontWeight: "600",
-                      color: issue.resolved ? V.green : severityColor(issue.severity),
-                      background: issue.resolved
-                        ? `${V.green}15`
-                        : `${severityColor(issue.severity)}15`,
-                      padding: "2px 8px",
-                      borderRadius: "4px",
-                      marginBottom: "8px",
-                    }}
-                  >
-                    {issue.resolved ? "解決済み" : severityLabel(issue.severity)}
-                  </span>
-
-                  {/* Event name and time */}
-                  <div
-                    style={{
-                      fontSize: "15px",
-                      fontWeight: "600",
-                      color: V.t1,
-                      marginBottom: "4px",
-                    }}
-                  >
-                    {issue.event.summary || "(タイトルなし)"}
-                  </div>
-                  <div style={{ fontSize: "13px", color: V.t3, marginBottom: "8px" }}>
-                    {new Date(issue.event.start).toLocaleString("ja-JP", {
-                      month: "short",
-                      day: "numeric",
-                      weekday: "short",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                    {" | "}
-                    {issue.event.source === "google" ? "Google Calendar" : "Outlook"}
-                  </div>
-
-                  {/* Issue description */}
-                  <div style={{ fontSize: "14px", color: V.t2, marginBottom: "6px" }}>
-                    {issue.message}
-                  </div>
-                  <div style={{ fontSize: "13px", color: V.accent }}>
-                    💡 {issue.suggestion}
-                  </div>
-
-                  {/* Resolved: show new link */}
-                  {issue.resolved && issue.newJoinUrl && (
-                    <div
-                      style={{
-                        marginTop: "8px",
-                        padding: "8px 12px",
-                        background: `${V.green}10`,
-                        borderRadius: "6px",
-                        fontSize: "13px",
-                        color: V.green,
-                        wordBreak: "break-all",
-                      }}
-                    >
-                      新しいリンク:{" "}
-                      <a
-                        href={issue.newJoinUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ color: V.accent }}
-                      >
-                        {issue.newJoinUrl}
-                      </a>
-                    </div>
-                  )}
-                </div>
-
-                {/* Action buttons */}
-                {!issue.resolved && hasZoom && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                    {issue.type !== "unusual_time" && (
-                      <button
-                        onClick={() => createReplacementMeeting(issue, idx)}
-                        disabled={creatingMeeting !== null}
-                        style={{
-                          background: V.accent,
-                          color: V.white,
-                          border: "none",
-                          borderRadius: "6px",
-                          padding: "8px 14px",
-                          fontSize: "12px",
-                          fontWeight: "600",
-                          cursor: creatingMeeting !== null ? "not-allowed" : "pointer",
-                          whiteSpace: "nowrap",
-                          opacity: creatingMeeting !== null ? 0.5 : 1,
-                        }}
-                      >
-                        🔧 修正する
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Inline meeting creation form */}
-              {creatingMeeting === idx && (
-                <div
-                  style={{
-                    marginTop: "16px",
-                    padding: "16px",
-                    background: "#F5F6FA",
-                    borderRadius: "8px",
-                    border: `1px solid ${V.border}`,
-                  }}
-                >
-                  <h4
-                    style={{
-                      margin: "0 0 12px",
-                      fontSize: "14px",
-                      fontWeight: "600",
-                      color: V.t1,
-                    }}
-                  >
-                    新しいZoomミーティングを作成
-                  </h4>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: "12px",
-                    }}
-                  >
-                    <div style={{ gridColumn: "1 / -1" }}>
-                      <label style={labelStyle}>タイトル</label>
-                      <input
-                        value={newMeetingForm.topic}
-                        onChange={(e) =>
-                          setNewMeetingForm((f) => ({ ...f, topic: e.target.value }))
-                        }
-                        style={inputStyle}
-                      />
-                    </div>
-                    <div>
-                      <label style={labelStyle}>開始日時</label>
-                      <input
-                        type="datetime-local"
-                        value={newMeetingForm.start_time}
-                        onChange={(e) =>
-                          setNewMeetingForm((f) => ({ ...f, start_time: e.target.value }))
-                        }
-                        style={inputStyle}
-                      />
-                    </div>
-                    <div>
-                      <label style={labelStyle}>時間（分）</label>
-                      <input
-                        type="number"
-                        value={newMeetingForm.duration}
-                        onChange={(e) =>
-                          setNewMeetingForm((f) => ({
-                            ...f,
-                            duration: parseInt(e.target.value) || 60,
-                          }))
-                        }
-                        style={inputStyle}
-                      />
-                    </div>
-                    <div>
-                      <label style={labelStyle}>タイムゾーン</label>
-                      <select
-                        value={newMeetingForm.timezone}
-                        onChange={(e) =>
-                          setNewMeetingForm((f) => ({ ...f, timezone: e.target.value }))
-                        }
-                        style={inputStyle}
-                      >
-                        <option value="Asia/Tokyo">東京 (JST)</option>
-                        <option value="Asia/Kolkata">インド (IST)</option>
-                        <option value="America/New_York">ニューヨーク (EST)</option>
-                        <option value="America/Los_Angeles">ロサンゼルス (PST)</option>
-                        <option value="Europe/London">ロンドン (GMT)</option>
-                        <option value="UTC">UTC</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "10px",
-                      marginTop: "16px",
-                      justifyContent: "flex-end",
-                    }}
-                  >
-                    <button
-                      onClick={() => setCreatingMeeting(null)}
-                      style={{
-                        background: V.white,
-                        color: V.t2,
-                        border: `1px solid ${V.border}`,
-                        borderRadius: "6px",
-                        padding: "8px 16px",
-                        fontSize: "13px",
-                        cursor: "pointer",
-                      }}
-                    >
-                      キャンセル
-                    </button>
-                    <button
-                      onClick={() => submitNewMeeting(idx)}
-                      style={{
-                        background: V.green,
-                        color: V.white,
-                        border: "none",
-                        borderRadius: "6px",
-                        padding: "8px 16px",
-                        fontSize: "13px",
-                        fontWeight: "600",
-                        cursor: "pointer",
-                      }}
-                    >
-                      作成してカレンダー更新
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
+              ⚠️ {issues.length}件の注意
+            </button>
+          )}
         </div>
-      )}
+      </div>
 
-      {/* No issues */}
-      {issues.length === 0 && hasConnections && !scanning && (
+      {/* Connection status */}
+      {!hasAnyCalendar && (
         <div
           style={{
-            background: `${V.green}08`,
-            border: `1px solid ${V.green}30`,
-            borderRadius: "10px",
+            background: `${V.accent}08`,
+            border: `1px solid ${V.accent}25`,
+            borderRadius: "12px",
             padding: "32px",
             textAlign: "center",
           }}
         >
-          <span style={{ fontSize: "48px" }}>✅</span>
-          <div
-            style={{
-              fontSize: "18px",
-              fontWeight: "600",
-              color: V.green,
-              marginTop: "12px",
-            }}
-          >
-            問題は検出されませんでした
+          <div style={{ fontSize: "40px", marginBottom: "12px" }}>📅</div>
+          <div style={{ fontSize: "16px", fontWeight: "600", color: V.t1, marginBottom: "8px" }}>
+            カレンダーを接続してください
           </div>
-          <div style={{ fontSize: "14px", color: V.t3, marginTop: "8px" }}>
-            次の3日間のカレンダーイベントに不整合はありません
+          <div style={{ fontSize: "14px", color: V.t3, lineHeight: "1.6" }}>
+            設定（⚙️）からGoogle CalendarまたはOutlookを接続すると、
+            <br />
+            ミーティングの一覧と管理ができるようになります。
           </div>
         </div>
       )}
 
-      {/* Action Log */}
-      {actionLog.length > 0 && (
-        <div style={{ marginTop: "24px" }}>
-          <h2
-            style={{
-              fontSize: "18px",
-              fontWeight: "600",
-              color: V.t1,
-              marginBottom: "12px",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-            }}
-          >
-            <span>📋</span> アクションログ
-          </h2>
-          <div
-            style={{
-              background: V.card,
-              border: `1px solid ${V.border}`,
-              borderRadius: "10px",
-              padding: "16px",
-              maxHeight: "300px",
-              overflowY: "auto",
-            }}
-          >
-            {actionLog
-              .slice()
-              .reverse()
-              .map((log, idx) => (
+      {/* Issues View */}
+      {view === "issues" && hasAnyCalendar && (
+        <IssuesView
+          issues={issues}
+          allEvents={allEvents}
+          onBack={() => setView("timeline")}
+        />
+      )}
+
+      {/* Timeline View */}
+      {view === "timeline" && hasAnyCalendar && (
+        <>
+          {dateKeys.length === 0 && (
+            <div
+              style={{
+                background: V.card,
+                border: `1px solid ${V.border}`,
+                borderRadius: "12px",
+                padding: "40px",
+                textAlign: "center",
+              }}
+            >
+              <div style={{ fontSize: "40px", marginBottom: "12px" }}>🎉</div>
+              <div style={{ fontSize: "16px", fontWeight: "600", color: V.t1 }}>
+                予定がありません
+              </div>
+              <div style={{ fontSize: "14px", color: V.t3, marginTop: "8px" }}>
+                今後{timeRange}日間にミーティングはありません
+              </div>
+            </div>
+          )}
+
+          {dateKeys.map((dateKey) => {
+            const events = grouped[dateKey];
+            const dateObj = new Date(dateKey + "T00:00:00");
+            const isToday =
+              dateObj.toDateString() === now.toDateString();
+
+            return (
+              <div key={dateKey} style={{ marginBottom: "28px" }}>
+                {/* Date header */}
                 <div
-                  key={idx}
                   style={{
-                    padding: "8px 0",
-                    borderBottom: idx < actionLog.length - 1 ? `1px solid ${V.border}` : "none",
                     display: "flex",
-                    alignItems: "flex-start",
-                    gap: "10px",
+                    alignItems: "center",
+                    gap: "12px",
+                    marginBottom: "12px",
                   }}
                 >
                   <div
                     style={{
-                      width: "8px",
-                      height: "8px",
-                      borderRadius: "50%",
-                      background: logColor(log.type),
-                      marginTop: "6px",
-                      flexShrink: 0,
+                      fontSize: "14px",
+                      fontWeight: "700",
+                      color: isToday ? V.accent : V.t1,
+                    }}
+                  >
+                    {fmtDateHeader(dateObj)}
+                  </div>
+                  <div
+                    style={{
+                      flex: 1,
+                      height: "1px",
+                      background: isToday ? `${V.accent}30` : V.border,
                     }}
                   />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: "13px", color: V.t2 }}>{log.message}</div>
-                    {log.joinUrl && (
-                      <a
-                        href={log.joinUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          fontSize: "12px",
-                          color: V.accent,
-                          wordBreak: "break-all",
-                        }}
-                      >
-                        {log.joinUrl}
-                      </a>
-                    )}
-                    <div style={{ fontSize: "11px", color: V.t4, marginTop: "2px" }}>
-                      {log.time.toLocaleTimeString("ja-JP")}
-                    </div>
+                  <div style={{ fontSize: "12px", color: V.t4 }}>
+                    {events.length}件
                   </div>
                 </div>
-              ))}
-          </div>
-        </div>
+
+                {/* Event cards */}
+                {events.map((event) => {
+                  const startDate = new Date(event.start);
+                  const endDate = event.end ? new Date(event.end) : new Date(startDate.getTime() + 60 * 60 * 1000);
+                  const videoLinks = detectVideoLinks(event);
+                  const primaryLink = videoLinks[0];
+                  const isPast = endDate < now;
+                  const isNow = startDate <= now && endDate > now;
+                  const eventIssues = issuesByEventId[event.id] || [];
+                  const isExpanded = expandedId === event.id;
+
+                  return (
+                    <div
+                      key={event.id || `${event.source}-${event.start}-${event.summary}`}
+                      style={{
+                        background: isPast ? `${V.bg}` : V.card,
+                        border: `1px solid ${isNow ? V.accent : V.border}`,
+                        borderRadius: "10px",
+                        padding: "14px 18px",
+                        marginBottom: "8px",
+                        opacity: isPast ? 0.6 : 1,
+                        position: "relative",
+                        cursor: "pointer",
+                        transition: "box-shadow 0.15s",
+                        boxShadow: isNow ? `0 0 0 1px ${V.accent}40` : "none",
+                      }}
+                      onClick={() => setExpandedId(isExpanded ? null : event.id)}
+                    >
+                      {/* NOW indicator */}
+                      {isNow && (
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: "-1px",
+                            left: "16px",
+                            background: V.accent,
+                            color: V.white,
+                            fontSize: "10px",
+                            fontWeight: "700",
+                            padding: "2px 8px",
+                            borderRadius: "0 0 4px 4px",
+                            letterSpacing: "0.5px",
+                          }}
+                        >
+                          NOW
+                        </div>
+                      )}
+
+                      <div style={{ display: "flex", gap: "14px", alignItems: "flex-start" }}>
+                        {/* Time column */}
+                        <div
+                          style={{
+                            minWidth: "60px",
+                            textAlign: "right",
+                            paddingTop: "2px",
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontSize: "15px",
+                              fontWeight: "700",
+                              color: isNow ? V.accent : isPast ? V.t4 : V.t1,
+                              fontVariantNumeric: "tabular-nums",
+                            }}
+                          >
+                            {fmtTime(startDate)}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: "11px",
+                              color: V.t4,
+                              marginTop: "2px",
+                            }}
+                          >
+                            {fmtDuration(startDate, endDate)}
+                          </div>
+                        </div>
+
+                        {/* Divider */}
+                        <div
+                          style={{
+                            width: "3px",
+                            alignSelf: "stretch",
+                            borderRadius: "2px",
+                            background: primaryLink
+                              ? primaryLink.color + "60"
+                              : event.sourceColor + "40",
+                            minHeight: "36px",
+                          }}
+                        />
+
+                        {/* Content */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <div
+                              style={{
+                                fontSize: "14px",
+                                fontWeight: "600",
+                                color: isPast ? V.t3 : V.t1,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                flex: 1,
+                              }}
+                            >
+                              {event.summary || "(タイトルなし)"}
+                            </div>
+
+                            {/* Issue badge */}
+                            {eventIssues.length > 0 && (
+                              <span
+                                style={{
+                                  fontSize: "11px",
+                                  background: `${V.orange}15`,
+                                  color: V.orange,
+                                  padding: "1px 6px",
+                                  borderRadius: "4px",
+                                  fontWeight: "600",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                ⚠ {eventIssues[0].message}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Meta row: source + video link */}
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "10px",
+                              marginTop: "6px",
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            {/* Source badge */}
+                            <span
+                              style={{
+                                fontSize: "11px",
+                                color: event.sourceColor,
+                                background: event.sourceColor + "12",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontWeight: "500",
+                              }}
+                            >
+                              {event.sourceLabel}
+                            </span>
+
+                            {/* Video platform badges */}
+                            {videoLinks.map((link) => (
+                              <button
+                                key={link.platform}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  window.open(link.url, "_blank");
+                                }}
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "4px",
+                                  fontSize: "11px",
+                                  fontWeight: "600",
+                                  color: link.color,
+                                  background: link.color + "12",
+                                  border: `1px solid ${link.color}30`,
+                                  borderRadius: "4px",
+                                  padding: "2px 8px",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                {link.icon} {link.shortLabel}で参加
+                              </button>
+                            ))}
+
+                            {/* Location if no video */}
+                            {videoLinks.length === 0 && event.location && (
+                              <span style={{ fontSize: "12px", color: V.t3 }}>
+                                📍 {event.location.length > 40
+                                  ? event.location.slice(0, 40) + "..."
+                                  : event.location}
+                              </span>
+                            )}
+
+                            {/* Copy link button */}
+                            {primaryLink && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  copyLink(primaryLink.url, event.id);
+                                }}
+                                style={{
+                                  fontSize: "11px",
+                                  color: copiedId === event.id ? V.green : V.t4,
+                                  background: "transparent",
+                                  border: "none",
+                                  cursor: "pointer",
+                                  padding: "2px 4px",
+                                }}
+                              >
+                                {copiedId === event.id ? "✓ コピー済" : "📋 コピー"}
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Expanded details */}
+                          {isExpanded && (
+                            <div
+                              style={{
+                                marginTop: "12px",
+                                padding: "12px",
+                                background: V.bg,
+                                borderRadius: "8px",
+                                fontSize: "13px",
+                                color: V.t2,
+                                lineHeight: "1.6",
+                              }}
+                            >
+                              <div style={{ display: "grid", gap: "6px" }}>
+                                <div>
+                                  <span style={{ color: V.t4, marginRight: "8px" }}>時間:</span>
+                                  {fmtTime(startDate)} 〜 {fmtTime(endDate)}（{fmtDuration(startDate, endDate)}）
+                                </div>
+                                {event.location && (
+                                  <div>
+                                    <span style={{ color: V.t4, marginRight: "8px" }}>場所:</span>
+                                    {event.location}
+                                  </div>
+                                )}
+                                {event.calendar && (
+                                  <div>
+                                    <span style={{ color: V.t4, marginRight: "8px" }}>カレンダー:</span>
+                                    {event.calendar}
+                                  </div>
+                                )}
+                                {event.description && (
+                                  <div style={{ marginTop: "4px" }}>
+                                    <span style={{ color: V.t4, display: "block", marginBottom: "4px" }}>
+                                      説明:
+                                    </span>
+                                    <div
+                                      style={{
+                                        whiteSpace: "pre-wrap",
+                                        wordBreak: "break-word",
+                                        maxHeight: "120px",
+                                        overflow: "auto",
+                                        fontSize: "12px",
+                                        color: V.t3,
+                                      }}
+                                    >
+                                      {event.description.slice(0, 500)}
+                                      {event.description.length > 500 && "..."}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* All video links in detail */}
+                                {videoLinks.length > 0 && (
+                                  <div style={{ marginTop: "4px" }}>
+                                    <span style={{ color: V.t4, display: "block", marginBottom: "4px" }}>
+                                      ビデオリンク:
+                                    </span>
+                                    {videoLinks.map((link) => (
+                                      <div key={link.platform} style={{ marginBottom: "4px" }}>
+                                        <a
+                                          href={link.url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          style={{
+                                            color: V.accent,
+                                            fontSize: "12px",
+                                            wordBreak: "break-all",
+                                          }}
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          {link.icon} {link.label}: {link.url}
+                                        </a>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {/* Issues for this event */}
+                                {eventIssues.length > 0 && (
+                                  <div
+                                    style={{
+                                      marginTop: "8px",
+                                      padding: "8px 10px",
+                                      background: `${V.orange}08`,
+                                      border: `1px solid ${V.orange}20`,
+                                      borderRadius: "6px",
+                                    }}
+                                  >
+                                    {eventIssues.map((issue, i) => (
+                                      <div
+                                        key={i}
+                                        style={{
+                                          fontSize: "12px",
+                                          color: V.orange,
+                                          display: "flex",
+                                          alignItems: "center",
+                                          gap: "6px",
+                                        }}
+                                      >
+                                        ⚠️ {issue.message}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </>
       )}
 
-      {/* Quick Create Meeting */}
-      {hasZoom && (
-        <QuickCreateSection auth={auth} setActionLog={setActionLog} />
+      {/* Quick Create Zoom Meeting (only if Zoom connected) */}
+      {hasZoom && view === "timeline" && (
+        <QuickCreateSection auth={auth} />
+      )}
+
+      {/* Connection summary at bottom */}
+      {hasAnyCalendar && (
+        <div
+          style={{
+            marginTop: "32px",
+            padding: "14px 18px",
+            background: V.bg,
+            borderRadius: "8px",
+            display: "flex",
+            alignItems: "center",
+            gap: "16px",
+            flexWrap: "wrap",
+          }}
+        >
+          <span style={{ fontSize: "12px", color: V.t4, fontWeight: "600" }}>接続中:</span>
+          {hasGoogle && (
+            <span style={{ fontSize: "12px", color: "#4285F4", display: "flex", alignItems: "center", gap: "4px" }}>
+              ● Google Calendar
+            </span>
+          )}
+          {hasOutlook && (
+            <span style={{ fontSize: "12px", color: "#0078D4", display: "flex", alignItems: "center", gap: "4px" }}>
+              ● Outlook
+            </span>
+          )}
+          {hasZoom && (
+            <span style={{ fontSize: "12px", color: "#2D8CFF", display: "flex", alignItems: "center", gap: "4px" }}>
+              ● Zoom
+            </span>
+          )}
+          {!hasZoom && (
+            <span style={{ fontSize: "12px", color: V.t4 }}>
+              Zoomを接続すると、ミーティングの作成が可能になります
+            </span>
+          )}
+        </div>
       )}
     </div>
   );
 }
 
-// Quick create section for ad-hoc meetings
-function QuickCreateSection({ auth, setActionLog }) {
+// Issues detail view
+function IssuesView({ issues, allEvents, onBack }) {
+  // Build event lookup
+  const eventMap = {};
+  allEvents.forEach((e) => {
+    eventMap[e.id] = e;
+  });
+
+  return (
+    <div>
+      <button
+        onClick={onBack}
+        style={{
+          background: "transparent",
+          border: "none",
+          color: V.accent,
+          fontSize: "13px",
+          cursor: "pointer",
+          padding: "0",
+          marginBottom: "16px",
+          display: "flex",
+          alignItems: "center",
+          gap: "4px",
+        }}
+      >
+        ← タイムラインに戻る
+      </button>
+
+      <h2 style={{ fontSize: "16px", fontWeight: "600", color: V.t1, marginBottom: "16px" }}>
+        ⚠️ 注意が必要な予定（{issues.length}件）
+      </h2>
+
+      {issues.map((issue, idx) => {
+        const event = eventMap[issue.eventId];
+        if (!event) return null;
+        const startDate = new Date(event.start);
+
+        return (
+          <div
+            key={idx}
+            style={{
+              background: V.card,
+              border: `1px solid ${V.border}`,
+              borderLeft: `4px solid ${issue.severity === "warning" ? V.orange : V.accent}`,
+              borderRadius: "8px",
+              padding: "14px 16px",
+              marginBottom: "10px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div>
+                <div style={{ fontSize: "14px", fontWeight: "600", color: V.t1 }}>
+                  {event.summary || "(タイトルなし)"}
+                </div>
+                <div style={{ fontSize: "12px", color: V.t3, marginTop: "4px" }}>
+                  {startDate.toLocaleDateString("ja-JP", {
+                    month: "short",
+                    day: "numeric",
+                    weekday: "short",
+                  })}{" "}
+                  {fmtTime(startDate)} | {event.sourceLabel}
+                </div>
+              </div>
+              <span
+                style={{
+                  fontSize: "11px",
+                  fontWeight: "600",
+                  color: issue.severity === "warning" ? V.orange : V.accent,
+                  background:
+                    (issue.severity === "warning" ? V.orange : V.accent) + "12",
+                  padding: "3px 8px",
+                  borderRadius: "4px",
+                }}
+              >
+                {issue.message}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Quick create Zoom meeting
+function QuickCreateSection({ auth }) {
+  const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
     topic: "",
     start_time: "",
@@ -925,41 +901,42 @@ function QuickCreateSection({ auth, setActionLog }) {
       const result = await res.json();
       if (result.id && result.join_url) {
         setLastCreated(result);
-        setActionLog((prev) => [
-          ...prev,
-          {
-            type: "success",
-            message: `新規ミーティング作成: ${form.topic}`,
-            joinUrl: result.join_url,
-            time: new Date(),
-          },
-        ]);
         setForm({ topic: "", start_time: "", duration: 60, timezone: "Asia/Tokyo" });
       }
     } catch (e) {
-      setActionLog((prev) => [
-        ...prev,
-        { type: "error", message: `作成エラー: ${e.message}`, time: new Date() },
-      ]);
+      console.error("Zoom create error:", e);
     }
     setCreating(false);
   };
 
+  if (!open) {
+    return (
+      <div style={{ marginTop: "24px" }}>
+        <button
+          onClick={() => setOpen(true)}
+          style={{
+            background: V.white,
+            border: `1px dashed ${V.border}`,
+            borderRadius: "10px",
+            padding: "14px 20px",
+            fontSize: "13px",
+            color: V.t3,
+            cursor: "pointer",
+            width: "100%",
+            textAlign: "center",
+            transition: "border-color 0.15s",
+          }}
+          onMouseEnter={(e) => (e.target.style.borderColor = V.accent)}
+          onMouseLeave={(e) => (e.target.style.borderColor = V.border)}
+        >
+          + Zoomミーティングを作成
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div style={{ marginTop: "24px" }}>
-      <h2
-        style={{
-          fontSize: "18px",
-          fontWeight: "600",
-          color: V.t1,
-          marginBottom: "12px",
-          display: "flex",
-          alignItems: "center",
-          gap: "8px",
-        }}
-      >
-        <span>➕</span> 新規Zoomミーティング作成
-      </h2>
       <div
         style={{
           background: V.card,
@@ -970,13 +947,33 @@ function QuickCreateSection({ auth, setActionLog }) {
       >
         <div
           style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: "12px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "16px",
           }}
         >
+          <h3 style={{ margin: 0, fontSize: "15px", fontWeight: "600", color: V.t1 }}>
+            Zoomミーティング作成
+          </h3>
+          <button
+            onClick={() => setOpen(false)}
+            style={{
+              background: "transparent",
+              border: "none",
+              fontSize: "18px",
+              color: V.t4,
+              cursor: "pointer",
+              lineHeight: 1,
+            }}
+          >
+            ✕
+          </button>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
           <div style={{ gridColumn: "1 / -1" }}>
-            <label style={labelStyle}>会議タイトル</label>
+            <label style={labelStyle}>タイトル</label>
             <input
               value={form.topic}
               onChange={(e) => setForm((f) => ({ ...f, topic: e.target.value }))}
@@ -1004,22 +1001,8 @@ function QuickCreateSection({ auth, setActionLog }) {
               style={inputStyle}
             />
           </div>
-          <div>
-            <label style={labelStyle}>タイムゾーン</label>
-            <select
-              value={form.timezone}
-              onChange={(e) => setForm((f) => ({ ...f, timezone: e.target.value }))}
-              style={inputStyle}
-            >
-              <option value="Asia/Tokyo">東京 (JST)</option>
-              <option value="Asia/Kolkata">インド (IST)</option>
-              <option value="America/New_York">ニューヨーク (EST)</option>
-              <option value="America/Los_Angeles">ロサンゼルス (PST)</option>
-              <option value="Europe/London">ロンドン (GMT)</option>
-              <option value="UTC">UTC</option>
-            </select>
-          </div>
         </div>
+
         <div style={{ display: "flex", gap: "10px", marginTop: "16px" }}>
           <button
             onClick={handleCreate}
@@ -1030,13 +1013,13 @@ function QuickCreateSection({ auth, setActionLog }) {
               border: "none",
               borderRadius: "8px",
               padding: "10px 20px",
-              fontSize: "14px",
+              fontSize: "13px",
               fontWeight: "600",
               cursor: creating || !form.topic || !form.start_time ? "not-allowed" : "pointer",
               opacity: creating || !form.topic || !form.start_time ? 0.5 : 1,
             }}
           >
-            {creating ? "作成中..." : "Zoomミーティングを作成"}
+            {creating ? "作成中..." : "作成"}
           </button>
         </div>
 
@@ -1044,82 +1027,41 @@ function QuickCreateSection({ auth, setActionLog }) {
           <div
             style={{
               marginTop: "16px",
-              padding: "12px 16px",
-              background: `${V.green}10`,
+              padding: "12px",
+              background: `${V.green}08`,
               borderRadius: "8px",
-              border: `1px solid ${V.green}30`,
+              border: `1px solid ${V.green}25`,
             }}
           >
-            <div style={{ fontSize: "14px", fontWeight: "600", color: V.green }}>
-              ミーティング作成完了
+            <div style={{ fontSize: "13px", fontWeight: "600", color: V.green, marginBottom: "6px" }}>
+              作成完了
             </div>
-            <div style={{ fontSize: "13px", color: V.t2, marginTop: "4px" }}>
-              <strong>ID:</strong> {lastCreated.id}
-            </div>
-            <div style={{ fontSize: "13px", marginTop: "4px" }}>
-              <a
-                href={lastCreated.join_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ color: V.accent, wordBreak: "break-all" }}
-              >
-                {lastCreated.join_url}
-              </a>
-            </div>
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(lastCreated.join_url);
-              }}
-              style={{
-                marginTop: "8px",
-                background: V.white,
-                border: `1px solid ${V.border}`,
-                borderRadius: "6px",
-                padding: "6px 12px",
-                fontSize: "12px",
-                cursor: "pointer",
-                color: V.t2,
-              }}
+            <a
+              href={lastCreated.join_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontSize: "13px", color: V.accent, wordBreak: "break-all" }}
             >
-              📋 リンクをコピー
-            </button>
+              {lastCreated.join_url}
+            </a>
+            <div style={{ marginTop: "8px" }}>
+              <button
+                onClick={() => navigator.clipboard.writeText(lastCreated.join_url)}
+                style={{
+                  background: V.white,
+                  border: `1px solid ${V.border}`,
+                  borderRadius: "6px",
+                  padding: "5px 10px",
+                  fontSize: "12px",
+                  cursor: "pointer",
+                  color: V.t2,
+                }}
+              >
+                📋 リンクをコピー
+              </button>
+            </div>
           </div>
         )}
-      </div>
-    </div>
-  );
-}
-
-function StatCard({ label, value, icon, color }) {
-  return (
-    <div
-      style={{
-        background: V.card,
-        border: `1px solid ${V.border}`,
-        borderRadius: "10px",
-        padding: "18px",
-        display: "flex",
-        alignItems: "center",
-        gap: "14px",
-      }}
-    >
-      <div
-        style={{
-          width: "44px",
-          height: "44px",
-          borderRadius: "10px",
-          background: `${color}15`,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: "22px",
-        }}
-      >
-        {icon}
-      </div>
-      <div>
-        <div style={{ fontSize: "24px", fontWeight: "700", color }}>{value}</div>
-        <div style={{ fontSize: "12px", color: V.t3 }}>{label}</div>
       </div>
     </div>
   );
