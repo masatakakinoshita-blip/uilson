@@ -12,8 +12,8 @@ const MS_SCOPES = "Mail.Read Calendars.ReadWrite User.Read Sites.Read.All Files.
 // Detect if running inside a hidden iframe (silent refresh child)
 const IS_IFRAME = window.self !== window.top;
 
-// Firebase origin for cross-domain toke transfer (Slack workaround)
-const FIREBASE_ORIGIN = "https://uilson-staging.web.app";
+// Firebase origin for cross-domain token transfer (Slack workaround)
+const FIREBASE_ORIGIN = "https://uilson-489209.web.app";
 
 // Implicit flow: returns access_token directly in URL hash (no client_secret needed)
 // promptOverride allows silent refresh with "none"

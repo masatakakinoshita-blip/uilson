@@ -1,5 +1,8 @@
 import { googleAuthUrl, slackAuthUrl, msAuthUrl } from "../hooks/useAuth";
 
+// Check if OAuth Client IDs are configured (empty = not available)
+const MS_CLIENT_CONFIGURED = !!(import.meta.env.VITE_MS_CLIENT_ID || "");
+
 const V = {
   bg: "#F0F2F7",
   sb: "#FFFFFF",
@@ -135,10 +138,11 @@ export default function SettingsModal({ show, onClose, auth, emailCounts, eventC
               { label: "Mail", count: emailCounts?.outlook || 0 },
               { label: "Calendar", count: eventCounts?.outlook || 0 },
             ]}
-            onConnect={() => {
+            onConnect={MS_CLIENT_CONFIGURED ? () => {
               window.location.href = msAuthUrl();
-            }}
+            } : null}
             onDisconnect={() => handleDisconnect("outlook")}
+            disabledMessage={!MS_CLIENT_CONFIGURED ? "準備中（Azure AD設定が必要です）" : null}
           />
         </div>
       </div>
@@ -146,7 +150,7 @@ export default function SettingsModal({ show, onClose, auth, emailCounts, eventC
   );
 }
 
-function ServiceCard({ name, icon, isConnected, email, counts, onConnect, onDisconnect }) {
+function ServiceCard({ name, icon, isConnected, email, counts, onConnect, onDisconnect, disabledMessage }) {
   return (
     <div
       style={{
@@ -232,6 +236,23 @@ function ServiceCard({ name, icon, isConnected, email, counts, onConnect, onDisc
       {/* Buttons */}
       <div style={{ display: "flex", gap: "10px" }}>
         {!isConnected ? (
+          disabledMessage ? (
+            <div
+              style={{
+                flex: 1,
+                background: V.border,
+                color: V.t3,
+                border: "none",
+                borderRadius: "8px",
+                padding: "10px 14px",
+                fontSize: "13px",
+                fontWeight: "500",
+                textAlign: "center",
+              }}
+            >
+              {disabledMessage}
+            </div>
+          ) : (
           <button
             onClick={onConnect}
             style={{
@@ -251,6 +272,7 @@ function ServiceCard({ name, icon, isConnected, email, counts, onConnect, onDisc
           >
             接続する
           </button>
+          )
         ) : (
           <button
             onClick={onDisconnect}

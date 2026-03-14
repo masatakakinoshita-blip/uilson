@@ -106,6 +106,12 @@ async function firestoreCall(action, body = {}) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action, ...body }),
     });
+    // Guard against non-JSON responses (e.g. HTML fallback when Cloud Functions not deployed)
+    const contentType = resp.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      console.warn("Firestore API returned non-JSON response (Cloud Functions may not be deployed)");
+      return null;
+    }
     const data = await resp.json();
     if (!data.ok && data.error) {
       console.warn("Firestore API error:", data.error);
