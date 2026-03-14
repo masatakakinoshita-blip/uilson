@@ -1,4 +1,4 @@
-name: Deploy to Firebase Staging
+name: Deploy to Firebase
 
 on:
   push:
@@ -28,6 +28,15 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           projectId: uilson-489209
           target: staging
+          channelId: live
+
+      - name: Deploy to Firebase Hosting (production)
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: uilson-489209
+          target: production
           channelId: live
 
   deploy-backend:
