@@ -1,13 +1,18 @@
 // Firestore persistence for UILSON skills and execution logs
 // Uses Firebase Admin SDK (auto-authenticates in Cloud Functions environment)
-import { initializeApp, getApps } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import admin from 'firebase-admin';
 
-// Initialize Firebase Admin (only once)
-if (getApps().length === 0) {
-  initializeApp();
+// Lazy init
+let db = null;
+function getDb() {
+  if (!db) {
+    if (admin.apps.length === 0) {
+      admin.initializeApp();
+    }
+    db = admin.firestore();
+  }
+  return db;
 }
-const db = getFirestore();
 
 export default async function handler(req, res) {
   // CORS
@@ -17,12 +22,13 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   try {
+    const firestore = getDb();
     const { action } = req.method === 'GET' ? req.query : (req.body || {});
 
     switch (action) {
       // ===== SKILLS =====
       case 'get_skills': {
-        const snapshot = await db.collection('skills').limit(100).get();
+        const snapshot = await firestore.collection('skills').limit(100).get();
         const skills = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         return res.json({ ok: true, skills });
       }
@@ -30,20 +36,20 @@ export default async function handler(req, res) {
       case 'save_skill': {
         const { skill } = req.body;
         if (!skill || !skill.id) return res.status(400).json({ error: 'skill.id required' });
-        await db.collection('skills').doc(skill.id).set(skill, { merge: true });
+        await firestore.collection('skills').doc(skill.id).set(skill, { merge: true });
         return res.json({ ok: true, skill });
       }
 
       case 'delete_skill': {
         const skillId = (req.body || {}).skillId || (req.query || {}).skillId;
         if (!skillId) return res.status(400).json({ error: 'skillId required' });
-        await db.collection('skills').doc(skillId).delete();
+        await firestore.collection('skills').doc(skillId).delete();
         return res.json({ ok: true });
       }
 
       // ===== EXECUTION LOGS =====
       case 'get_logs': {
-        const snapshot = await db.collection('execution_logs')
+        const snapshot = await firestore.collection('execution_logs')
           .orderBy('timestamp', 'desc')
           .limit(200)
           .get();
@@ -54,7 +60,7 @@ export default async function handler(req, res) {
       case 'save_log': {
         const { log } = req.body;
         if (!log || !log.id) return res.status(400).json({ error: 'log.id required' });
-        await db.collection('execution_logs').doc(log.id).set(log, { merge: true });
+        await firestore.collection('execution_logs').doc(log.id).set(log, { merge: true });
         return res.json({ ok: true, log });
       }
 
@@ -65,11 +71,11 @@ export default async function handler(req, res) {
 
         // Save skills in batches (Firestore batch limit = 500)
         for (let i = 0; i < skills.length; i += 10) {
-          const batch = db.batch();
+          const batch = firestore.batch();
           const chunk = skills.slice(i, i + 10);
           for (const skill of chunk) {
             if (skill && skill.id) {
-              batch.set(db.collection('skills').doc(skill.id), skill, { merge: true });
+              batch.set(firestore.collection('skills').doc(skill.id), skill, { merge: true });
               results.skillsSaved++;
             }
           }
@@ -82,11 +88,11 @@ export default async function handler(req, res) {
 
         // Save logs in batches
         for (let i = 0; i < logs.length; i += 20) {
-          const batch = db.batch();
+          const batch = firestore.batch();
           const chunk = logs.slice(i, i + 20);
           for (const log of chunk) {
             if (log && log.id) {
-              batch.set(db.collection('execution_logs').doc(log.id), log, { merge: true });
+              batch.set(firestore.collection('execution_logs').doc(log.id), log, { merge: true });
               results.logsSaved++;
             }
           }
