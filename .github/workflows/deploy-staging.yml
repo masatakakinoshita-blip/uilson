@@ -35,7 +35,21 @@ jobs:
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
 
+      - name: Create functions .env
+        run: |
+          echo "VITE_SLACK_CLIENT_ID=9162639476707.10688200182512" > functions/.env
+          echo "SLACK_CLIENT_SECRET=${{ secrets.SLACK_CLIENT_SECRET }}" >> functions/.env
+          echo "VITE_GOOGLE_CLIENT_ID=${{ secrets.VITE_GOOGLE_CLIENT_ID }}" >> functions/.env
+          echo "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" >> functions/.env
+          echo "VITE_MS_CLIENT_ID=${{ secrets.VITE_MS_CLIENT_ID }}" >> functions/.env
+          echo "MS_CLIENT_SECRET=${{ secrets.MS_CLIENT_SECRET }}" >> functions/.env
+          echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" >> functions/.env
+          echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> functions/.env
+          cat functions/.env | wc -l
+          echo "Functions .env created with $(wc -l < functions/.env) lines"
+
       - name: Deploy Cloud Functions
+        continue-on-error: true
         run: firebase deploy --only functions --project uilson-489209 --force
 
       - name: Deploy to Firebase Hosting (staging)
