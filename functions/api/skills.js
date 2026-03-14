@@ -1,114 +1,13 @@
 // Firestore persistence for UILSON skills and execution logs
-// Uses Firestore REST API with service account JWT auth
-import crypto from 'crypto';
+// Uses Firebase Admin SDK (auto-authenticates in Cloud Functions environment)
+import { initializeApp, getApps } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
 
-const PROJECT_ID = process.env.FIRESTORE_PROJECT_ID || 'uilson-489209';
-const FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
-
-// Cache access token in module scope
-let cachedToken = null;
-let tokenExpiry = 0;
-
-async function getFirestoreToken() {
-  if (cachedToken && Date.now() < tokenExpiry - 60000) return cachedToken;
-
-  const keyRaw = process.env.FIRESTORE_SERVICE_ACCOUNT_KEY;
-  if (!keyRaw) throw new Error('FIRESTORE_SERVICE_ACCOUNT_KEY not configured');
-
-  let key;
-  try {
-    key = JSON.parse(Buffer.from(keyRaw, 'base64').toString());
-  } catch {
-    key = JSON.parse(keyRaw);
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
-  const payload = Buffer.from(JSON.stringify({
-    iss: key.client_email,
-    scope: 'https://www.googleapis.com/auth/datastore',
-    aud: 'https://oauth2.googleapis.com/token',
-    iat: now,
-    exp: now + 3600,
-  })).toString('base64url');
-
-  const sign = crypto.createSign('RSA-SHA256');
-  sign.update(header + '.' + payload);
-  const signature = sign.sign(key.private_key, 'base64url');
-  const jwt = header + '.' + payload + '.' + signature;
-
-  const resp = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`,
-  });
-  const data = await resp.json();
-  if (data.error) throw new Error('Firestore auth failed: ' + (data.error_description || data.error));
-
-  cachedToken = data.access_token;
-  tokenExpiry = Date.now() + (data.expires_in || 3600) * 1000;
-  return cachedToken;
+// Initialize Firebase Admin (only once)
+if (getApps().length === 0) {
+  initializeApp();
 }
-
-// Convert JS object to Firestore Value format
-function toFirestoreValue(val) {
-  if (val === null || val === undefined) return { nullValue: null };
-  if (typeof val === 'boolean') return { booleanValue: val };
-  if (typeof val === 'number') {
-    return Number.isInteger(val) ? { integerValue: String(val) } : { doubleValue: val };
-  }
-  if (typeof val === 'string') return { stringValue: val };
-  if (Array.isArray(val)) {
-    return { arrayValue: { values: val.map(toFirestoreValue) } };
-  }
-  if (typeof val === 'object') {
-    const fields = {};
-    for (const [k, v] of Object.entries(val)) {
-      fields[k] = toFirestoreValue(v);
-    }
-    return { mapValue: { fields } };
-  }
-  return { stringValue: String(val) };
-}
-
-// Convert Firestore Value to JS object
-function fromFirestoreValue(val) {
-  if ('nullValue' in val) return null;
-  if ('booleanValue' in val) return val.booleanValue;
-  if ('integerValue' in val) return parseInt(val.integerValue, 10);
-  if ('doubleValue' in val) return val.doubleValue;
-  if ('stringValue' in val) return val.stringValue;
-  if ('arrayValue' in val) {
-    return (val.arrayValue.values || []).map(fromFirestoreValue);
-  }
-  if ('mapValue' in val) {
-    const obj = {};
-    for (const [k, v] of Object.entries(val.mapValue.fields || {})) {
-      obj[k] = fromFirestoreValue(v);
-    }
-    return obj;
-  }
-  return null;
-}
-
-// Convert a Firestore document to a plain JS object
-function docToObject(doc) {
-  if (!doc || !doc.fields) return null;
-  const obj = {};
-  for (const [k, v] of Object.entries(doc.fields)) {
-    obj[k] = fromFirestoreValue(v);
-  }
-  return obj;
-}
-
-// Convert a JS object to Firestore document fields
-function objectToFields(obj) {
-  const fields = {};
-  for (const [k, v] of Object.entries(obj)) {
-    fields[k] = toFirestoreValue(v);
-  }
-  return fields;
-}
+const db = getFirestore();
 
 export default async function handler(req, res) {
   // CORS
@@ -118,122 +17,84 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   try {
-    const token = await getFirestoreToken();
-    const headers = {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    };
-
-    const { action } = req.method === 'GET' ? req.query : req.body;
+    const { action } = req.method === 'GET' ? req.query : (req.body || {});
 
     switch (action) {
       // ===== SKILLS =====
       case 'get_skills': {
-        // List all skills from the "skills" collection
-        const resp = await fetch(`${FIRESTORE_BASE}/skills?pageSize=100`, { headers });
-        const data = await resp.json();
-        const skills = (data.documents || []).map(docToObject).filter(Boolean);
+        const snapshot = await db.collection('skills').limit(100).get();
+        const skills = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         return res.json({ ok: true, skills });
       }
 
       case 'save_skill': {
         const { skill } = req.body;
         if (!skill || !skill.id) return res.status(400).json({ error: 'skill.id required' });
-        // Upsert skill document
-        const resp = await fetch(`${FIRESTORE_BASE}/skills/${skill.id}`, {
-          method: 'PATCH',
-          headers,
-          body: JSON.stringify({ fields: objectToFields(skill) }),
-        });
-        const data = await resp.json();
-        if (data.error) throw new Error(data.error.message);
-        return res.json({ ok: true, skill: docToObject(data) });
+        await db.collection('skills').doc(skill.id).set(skill, { merge: true });
+        return res.json({ ok: true, skill });
       }
 
       case 'delete_skill': {
-        const skillId = req.body.skillId || req.query.skillId;
+        const skillId = (req.body || {}).skillId || (req.query || {}).skillId;
         if (!skillId) return res.status(400).json({ error: 'skillId required' });
-        await fetch(`${FIRESTORE_BASE}/skills/${skillId}`, {
-          method: 'DELETE',
-          headers,
-        });
+        await db.collection('skills').doc(skillId).delete();
         return res.json({ ok: true });
       }
 
       // ===== EXECUTION LOGS =====
       case 'get_logs': {
-        // Get recent execution logs, ordered by timestamp desc
-        // Firestore REST API structured query
-        const queryBody = {
-          structuredQuery: {
-            from: [{ collectionId: 'execution_logs' }],
-            orderBy: [{ field: { fieldPath: 'timestamp' }, direction: 'DESCENDING' }],
-            limit: 200,
-          },
-        };
-        const resp = await fetch(
-          `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents:runQuery`,
-          { method: 'POST', headers, body: JSON.stringify(queryBody) }
-        );
-        const data = await resp.json();
-        const logs = (data || [])
-          .filter(r => r.document)
-          .map(r => docToObject(r.document))
-          .filter(Boolean);
+        const snapshot = await db.collection('execution_logs')
+          .orderBy('timestamp', 'desc')
+          .limit(200)
+          .get();
+        const logs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         return res.json({ ok: true, logs });
       }
 
       case 'save_log': {
         const { log } = req.body;
         if (!log || !log.id) return res.status(400).json({ error: 'log.id required' });
-        const resp = await fetch(`${FIRESTORE_BASE}/execution_logs/${log.id}`, {
-          method: 'PATCH',
-          headers,
-          body: JSON.stringify({ fields: objectToFields(log) }),
-        });
-        const data = await resp.json();
-        if (data.error) throw new Error(data.error.message);
-        return res.json({ ok: true, log: docToObject(data) });
+        await db.collection('execution_logs').doc(log.id).set(log, { merge: true });
+        return res.json({ ok: true, log });
       }
 
       // ===== BULK SYNC =====
       case 'sync': {
-        // Full sync: save all skills and logs at once (for initial migration from localStorage)
         const { skills = [], logs = [] } = req.body;
         const results = { skillsSaved: 0, logsSaved: 0, errors: [] };
 
-        // Save skills in parallel (batch of 10)
+        // Save skills in batches (Firestore batch limit = 500)
         for (let i = 0; i < skills.length; i += 10) {
-          const batch = skills.slice(i, i + 10);
-          await Promise.all(batch.map(async (skill) => {
-            try {
-              await fetch(`${FIRESTORE_BASE}/skills/${skill.id}`, {
-                method: 'PATCH',
-                headers,
-                body: JSON.stringify({ fields: objectToFields(skill) }),
-              });
+          const batch = db.batch();
+          const chunk = skills.slice(i, i + 10);
+          for (const skill of chunk) {
+            if (skill && skill.id) {
+              batch.set(db.collection('skills').doc(skill.id), skill, { merge: true });
               results.skillsSaved++;
-            } catch (e) {
-              results.errors.push(`skill ${skill.id}: ${e.message}`);
             }
-          }));
+          }
+          try {
+            await batch.commit();
+          } catch (e) {
+            results.errors.push(`skills batch ${i}: ${e.message}`);
+          }
         }
 
-        // Save logs in parallel (batch of 20)
+        // Save logs in batches
         for (let i = 0; i < logs.length; i += 20) {
-          const batch = logs.slice(i, i + 20);
-          await Promise.all(batch.map(async (log) => {
-            try {
-              await fetch(`${FIRESTORE_BASE}/execution_logs/${log.id}`, {
-                method: 'PATCH',
-                headers,
-                body: JSON.stringify({ fields: objectToFields(log) }),
-              });
+          const batch = db.batch();
+          const chunk = logs.slice(i, i + 20);
+          for (const log of chunk) {
+            if (log && log.id) {
+              batch.set(db.collection('execution_logs').doc(log.id), log, { merge: true });
               results.logsSaved++;
-            } catch (e) {
-              results.errors.push(`log ${log.id}: ${e.message}`);
             }
-          }));
+          }
+          try {
+            await batch.commit();
+          } catch (e) {
+            results.errors.push(`logs batch ${i}: ${e.message}`);
+          }
         }
 
         return res.json({ ok: true, ...results });
