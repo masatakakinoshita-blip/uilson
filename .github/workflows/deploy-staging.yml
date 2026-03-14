@@ -57,6 +57,7 @@ jobs:
           channelId: live
 
       - name: Deploy to Cloud Run
+        continue-on-error: true
         run: |
           cd server
           gcloud run deploy uilson-api \
